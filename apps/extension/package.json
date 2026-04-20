@@ -1,0 +1,26 @@
+{
+  "name": "tcf-tracker-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension for ExamSeat Monitor",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tcf-tracker/types": "workspace:*",
+    "@tcf-tracker/utils": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.23",
+    "@types/chrome": "^0.0.268",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.13"
+  }
+}

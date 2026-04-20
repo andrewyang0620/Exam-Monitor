@@ -1,0 +1,22 @@
+{
+  "name": "tcf-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TEF/TCF Canada exam seat monitoring and autofill assistant",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build && pnpm --filter extension build",
+    "build:web": "pnpm --filter web build",
+    "build:extension": "pnpm --filter extension build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "type-check": "pnpm -r type-check"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

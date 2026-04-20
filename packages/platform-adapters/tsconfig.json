@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@tcf-tracker/types": ["../../packages/types/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
