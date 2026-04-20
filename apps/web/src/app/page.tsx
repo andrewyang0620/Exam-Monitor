@@ -531,7 +531,7 @@ export default function LandingPage() {
             <a href="/privacy" className="hover:text-slate-400 transition-colors">Privacy</a>
           </p>
           <div className="flex gap-4 text-xs text-slate-500">
-            <Link href="/dashboard" className="hover:text-slate-300 transition-colors">Dashboard</Link>
+            <Link href="/" className="hover:text-slate-300 transition-colors">Dashboard</Link>
             <a href="#faq" className="hover:text-slate-300 transition-colors">FAQ</a>
           </div>
         </div>
