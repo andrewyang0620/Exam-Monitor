@@ -73,7 +73,7 @@ export const MOCK_PLATFORMS: Platform[] = [
     province: 'BC',
     country: 'CA',
     examTypesSupported: ['TEF', 'TEF Canada', 'TCF Canada'],
-    entryUrl: 'https://www.afvancouver.com/exams',
+    entryUrl: 'https://www.alliancefrancaise.ca/en/language/exams/tcf-canada/',
     monitoring: {
       level: 'full',
       detectionMode: 'html',

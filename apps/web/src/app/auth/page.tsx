@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { Activity, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { supabase, isDemoMode } from '@/lib/supabase'
 
 export default function AuthPage() {
   const searchParams = useSearchParams()
@@ -16,13 +17,42 @@ export default function AuthPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [error, setError] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    // Demo: redirect to dashboard after 1s
-    await new Promise((r) => setTimeout(r, 1000))
-    window.location.href = '/dashboard'
+    setError('')
+
+    // Demo mode: bypass auth and go to dashboard
+    if (isDemoMode || !supabase) {
+      await new Promise((r) => setTimeout(r, 800))
+      window.location.href = '/dashboard'
+      return
+    }
+
+    try {
+      if (mode === 'signin') {
+        const { error: err } = await supabase.auth.signInWithPassword({ email, password })
+        if (err) throw err
+      } else {
+        const { error: err } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              display_name: displayName.trim() || email.split('@')[0],
+            },
+          },
+        })
+        if (err) throw err
+      }
+      window.location.href = '/dashboard'
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Authentication failed'
+      setError(msg)
+      setLoading(false)
+    }
   }
 
   return (
@@ -93,12 +123,29 @@ export default function AuthPage() {
             </p>
           </div>
 
-          {/* Demo notice */}
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-6">
-            <p className="text-xs text-blue-700">
-              <span className="font-semibold">Demo mode:</span> Enter any email/password to access the dashboard with realistic mock data.
-            </p>
-          </div>
+          {/* Demo / info notice */}
+          {isDemoMode ? (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-6">
+              <p className="text-xs text-blue-700">
+                <span className="font-semibold">Demo mode:</span> Enter any email/password to access the dashboard with realistic mock data.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-6">
+              <p className="text-xs text-slate-600">
+                {mode === 'signup'
+                  ? 'Create a free account to start monitoring exam seat availability.'
+                  : 'Sign in to your monitoring dashboard.'}
+              </p>
+            </div>
+          )}
+
+          {/* Error message */}
+          {error && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4">
+              <p className="text-xs text-red-700">{error}</p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (

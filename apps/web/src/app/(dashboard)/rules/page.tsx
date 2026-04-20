@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Plus,
   Bell,
@@ -15,9 +15,10 @@ import {
   ChevronDown,
   CheckCircle,
 } from 'lucide-react'
-import type { MonitoringRule, Platform, ExamType } from '@tcf-tracker/types'
+import type { MonitoringRule, Platform, ExamType, SeatObservation } from '@tcf-tracker/types'
 import { getStatusColor, getStatusDotColor, getStatusLabel, formatTimeAgo } from '@tcf-tracker/utils'
 import { MOCK_RULES, MOCK_PLATFORMS, MOCK_OBSERVATIONS } from '@/lib/mock-data'
+import { supabase, isDemoMode } from '@/lib/supabase'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,8 +40,23 @@ const CHANNELS = [
   { id: 'sms', label: 'SMS', icon: Smartphone },
 ] as const
 
-function RuleCard({ rule, onToggle }: { rule: MonitoringRule; onToggle: (id: string) => void }) {
-  const obs = MOCK_OBSERVATIONS.find((o) => o.platformId === rule.platformId)
+function RuleCard({
+  rule,
+  observations,
+  onToggle,
+  onDelete,
+}: {
+  rule: MonitoringRule
+  observations: SeatObservation[]
+  onToggle: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const obs = observations.find((o) => o.platformId === rule.platformId)
+  // Use real registration URL for AF Vancouver; fall back to platform entryUrl
+  const officialUrl =
+    rule.platformId === 'af-vancouver'
+      ? 'https://www.alliancefrancaise.ca/products/ciep-tcf-canada-full-exam/'
+      : MOCK_PLATFORMS.find((p) => p.id === rule.platformId)?.entryUrl ?? '#'
 
   return (
     <div
@@ -141,15 +157,25 @@ function RuleCard({ rule, onToggle }: { rule: MonitoringRule; onToggle: (id: str
         {/* Actions */}
         <div className="flex items-center gap-2">
           {obs?.availabilityStatus === 'OPEN' && (
-            <Button size="sm" variant="success" className="gap-1.5 text-xs flex-1">
+            <a
+              href={officialUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors flex-1 justify-center"
+            >
               <ExternalLink className="w-3 h-3" />
               Open Official Page
-            </Button>
+            </a>
           )}
           <Button size="sm" variant="outline" className="gap-1.5 text-xs">
             Edit
           </Button>
-          <Button size="icon-sm" variant="ghost" className="text-slate-400 hover:text-red-500">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="text-slate-400 hover:text-red-500"
+            onClick={() => onDelete(rule.id)}
+          >
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         </div>
@@ -161,38 +187,83 @@ function RuleCard({ rule, onToggle }: { rule: MonitoringRule; onToggle: (id: str
 function CreateRuleDialog({
   open,
   onClose,
+  onCreated,
   platforms,
 }: {
   open: boolean
   onClose: () => void
+  onCreated: () => void
   platforms: Platform[]
 }) {
   const [step, setStep] = useState(1)
   const [selectedPlatform, setSelectedPlatform] = useState('')
   const [selectedExam, setSelectedExam] = useState<ExamType | ''>('')
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['browser', 'email'])
+  const [datePreference, setDatePreference] = useState('')
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   const platform = platforms.find((p) => p.id === selectedPlatform)
   const availableExams = platform?.examTypesSupported ?? EXAM_TYPES
 
   const handleSave = async () => {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 800))
-    setSaving(false)
-    setDone(true)
-    await new Promise((r) => setTimeout(r, 1200))
-    onClose()
+    setSaveError('')
+
+    if (isDemoMode || !supabase) {
+      // Demo mode: simulate save
+      await new Promise((r) => setTimeout(r, 800))
+      setSaving(false)
+      setDone(true)
+      await new Promise((r) => setTimeout(r, 1200))
+      onCreated()
+      onClose()
+      resetForm()
+      return
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const { error } = await supabase.from('monitoring_rules').insert({
+        user_id: user.id,
+        platform_id: selectedPlatform,
+        exam_type: selectedExam,
+        city: platform?.city ?? null,
+        date_preference: datePreference.trim() || 'any',
+        channels: selectedChannels,
+        priority: 1,
+        is_active: true,
+      })
+      if (error) throw error
+
+      setSaving(false)
+      setDone(true)
+      await new Promise((r) => setTimeout(r, 1200))
+      onCreated()
+      onClose()
+      resetForm()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save rule'
+      setSaveError(msg)
+      setSaving(false)
+    }
+  }
+
+  const resetForm = () => {
     setStep(1)
     setSelectedPlatform('')
     setSelectedExam('')
+    setDatePreference('')
     setDone(false)
+    setSaveError('')
   }
 
   const toggleChannel = (ch: string) => {
     setSelectedChannels((prev) =>
-      prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]
+      prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch],
     )
   }
 
@@ -216,6 +287,12 @@ function CreateRuleDialog({
           </div>
         ) : (
           <div className="space-y-5 py-2">
+            {saveError && (
+              <div className="bg-red-50 border border-red-100 rounded-lg p-3">
+                <p className="text-xs text-red-700">{saveError}</p>
+              </div>
+            )}
+
             {/* Platform select */}
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-2">
@@ -255,7 +332,7 @@ function CreateRuleDialog({
                       'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
                       selectedExam === exam
                         ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
+                        : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600',
                     )}
                   >
                     {exam}
@@ -273,6 +350,8 @@ function CreateRuleDialog({
                 type="text"
                 placeholder="e.g. any, 2026-Q2, June 2026"
                 className="text-sm"
+                value={datePreference}
+                onChange={(e) => setDatePreference(e.target.value)}
               />
             </div>
 
@@ -332,13 +411,100 @@ function CreateRuleDialog({
 }
 
 export default function RulesPage() {
-  const [rules, setRules] = useState(MOCK_RULES)
+  const [rules, setRules] = useState<MonitoringRule[]>(isDemoMode ? MOCK_RULES : [])
+  const [observations, setObservations] = useState(isDemoMode ? MOCK_OBSERVATIONS : [])
   const [createOpen, setCreateOpen] = useState(false)
 
-  const toggleRule = (id: string) => {
-    setRules((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, isActive: !r.isActive } : r))
-    )
+  useEffect(() => {
+    if (isDemoMode || !supabase) return
+    loadRules()
+    loadObservations()
+  }, [])
+
+  async function loadRules() {
+    const { data: { user } } = await supabase!.auth.getUser()
+    if (!user) return
+    const { data } = await supabase!
+      .from('monitoring_rules')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+    if (data) {
+      const platform = MOCK_PLATFORMS
+      setRules(
+        data.map((r) => ({
+          id: r.id,
+          userId: r.user_id,
+          platformId: r.platform_id,
+          examType: r.exam_type as MonitoringRule['examType'],
+          city: r.city ?? r.platform_id,
+          datePreference: r.date_preference ?? 'any',
+          channels: r.channels as MonitoringRule['channels'],
+          priority: (Math.min(3, Math.max(1, r.priority)) as 1 | 2 | 3),
+          isActive: r.is_active,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          platformDisplayName:
+            platform.find((p) => p.id === r.platform_id)?.displayName ?? r.platform_id,
+        })),
+      )
+    }
+  }
+
+  async function loadObservations() {
+    const { data } = await supabase!
+      .from('seat_observations')
+      .select('*')
+      .order('observed_at', { ascending: false })
+      .limit(20)
+    if (data) {
+      setObservations(
+        data.map((o) => ({
+          id: o.id,
+          platformId: o.platform_id,
+          centerName: o.center_name,
+          city: o.city,
+          province: o.province ?? '',
+          examType: o.exam_type as SeatObservation['examType'],
+          sessionLabel: o.session_label ?? undefined,
+          sessionDate: o.session_date ?? undefined,
+          availabilityStatus: o.availability_status as SeatObservation['availabilityStatus'],
+          seatsText: o.seats_text ?? undefined,
+          observedAt: o.observed_at,
+          sourceHash: o.source_hash ?? '',
+          confidence: o.confidence ?? 1,
+        })),
+      )
+    }
+  }
+
+  const toggleRule = async (id: string) => {
+    const rule = rules.find((r) => r.id === id)
+    if (!rule) return
+    const newActive = !rule.isActive
+
+    // Optimistic update
+    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: newActive } : r)))
+
+    if (!isDemoMode && supabase) {
+      const { error } = await supabase
+        .from('monitoring_rules')
+        .update({ is_active: newActive, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) {
+        // Revert on failure
+        setRules((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: !newActive } : r)))
+      }
+    }
+  }
+
+  const deleteRule = async (id: string) => {
+    // Optimistic update
+    setRules((prev) => prev.filter((r) => r.id !== id))
+
+    if (!isDemoMode && supabase) {
+      await supabase.from('monitoring_rules').delete().eq('id', id)
+    }
   }
 
   const activeCount = rules.filter((r) => r.isActive).length
@@ -383,7 +549,13 @@ export default function RulesPage() {
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {rules.map((rule) => (
-                <RuleCard key={rule.id} rule={rule} onToggle={toggleRule} />
+                <RuleCard
+                  key={rule.id}
+                  rule={rule}
+                  observations={observations}
+                  onToggle={toggleRule}
+                  onDelete={deleteRule}
+                />
               ))}
 
               {/* Add more card */}
@@ -425,6 +597,10 @@ export default function RulesPage() {
       <CreateRuleDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
+        onCreated={() => {
+          loadRules()
+          loadObservations()
+        }}
         platforms={MOCK_PLATFORMS}
       />
     </div>

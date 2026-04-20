@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Bell,
   Mail,
@@ -10,13 +10,16 @@ import {
   Filter,
   Eye,
 } from 'lucide-react'
-import type { NotificationDelivery } from '@tcf-tracker/types'
+import type { NotificationDelivery, ChangeEvent } from '@tcf-tracker/types'
 import { formatTimeAgo, getStatusDotColor, getStatusLabel } from '@tcf-tracker/utils'
 import { MOCK_NOTIFICATIONS } from '@/lib/mock-data'
+import { supabase, isDemoMode } from '@/lib/supabase'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import type { DbNotificationWithEvent } from '@/lib/database.types'
+import { AF_VANCOUVER_REGISTRATION_URL } from '@/app/api/monitor/af-vancouver-parser'
 
 const CHANNEL_ICONS = {
   browser: Bell,
@@ -122,10 +125,19 @@ function NotificationRow({
         {/* Actions */}
         <div className="flex items-center gap-2 mt-2.5">
           {isOpen && (
-            <button className="flex items-center gap-1 text-xs text-blue-600 font-medium hover:text-blue-700 transition-colors">
+            <a
+              href={
+                event.platformId === 'af-vancouver'
+                  ? AF_VANCOUVER_REGISTRATION_URL
+                  : '#'
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-blue-600 font-medium hover:text-blue-700 transition-colors"
+            >
               <ExternalLink className="w-3 h-3" />
               Open official page
-            </button>
+            </a>
           )}
           {!notification.isViewed && (
             <button
@@ -143,17 +155,84 @@ function NotificationRow({
 }
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<NotificationDelivery[]>(MOCK_NOTIFICATIONS)
+  const [notifications, setNotifications] = useState<NotificationDelivery[]>(
+    isDemoMode ? MOCK_NOTIFICATIONS : [],
+  )
   const [filter, setFilter] = useState<'all' | 'unread' | 'open'>('all')
 
-  const markViewed = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isViewed: true } : n))
-    )
+  useEffect(() => {
+    if (isDemoMode || !supabase) return
+    loadNotifications()
+  }, [])
+
+  async function loadNotifications() {
+    const { data: { user } } = await supabase!.auth.getUser()
+    if (!user) return
+
+    const { data } = await supabase!
+      .from('notification_deliveries')
+      .select('*, change_events(*)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (data) {
+      setNotifications(
+        (data as DbNotificationWithEvent[]).map((n) => {
+          const ce = n.change_events
+          return {
+            id: n.id,
+            userId: n.user_id,
+            changeEventId: n.change_event_id,
+            channel: n.channel as NotificationDelivery['channel'],
+            status: n.status as NotificationDelivery['status'],
+            sentAt: n.sent_at ?? undefined,
+            isViewed: n.is_viewed,
+            event: ce
+              ? {
+                  id: ce.id,
+                  platformId: ce.platform_id,
+                  ruleId: undefined,
+                  previousStatus: (ce.previous_status ?? 'UNKNOWN') as ChangeEvent['previousStatus'],
+                  newStatus: ce.new_status as ChangeEvent['newStatus'],
+                  eventType: ce.event_type as ChangeEvent['eventType'],
+                  detectedAt: ce.detected_at,
+                  confidence: ce.confidence ?? 1,
+                  deliveredChannels: [],
+                  rawObservationRef: ce.raw_observation_id ?? '',
+                  centerName: ce.center_name,
+                  examType: ce.exam_type as ChangeEvent['examType'],
+                  city: ce.city,
+                }
+              : undefined,
+          }
+        }),
+      )
+    }
   }
 
-  const markAllViewed = () => {
+  const markViewed = async (id: string) => {
+    // Optimistic update
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isViewed: true } : n)))
+
+    if (!isDemoMode && supabase) {
+      await supabase
+        .from('notification_deliveries')
+        .update({ is_viewed: true, viewed_at: new Date().toISOString() })
+        .eq('id', id)
+    }
+  }
+
+  const markAllViewed = async () => {
+    const unreadIds = notifications.filter((n) => !n.isViewed).map((n) => n.id)
     setNotifications((prev) => prev.map((n) => ({ ...n, isViewed: true })))
+
+    if (!isDemoMode && supabase && unreadIds.length > 0) {
+      await supabase
+        .from('notification_deliveries')
+        .update({ is_viewed: true, viewed_at: new Date().toISOString() })
+        .in('id', unreadIds)
+    }
   }
 
   const filtered = notifications.filter((n) => {

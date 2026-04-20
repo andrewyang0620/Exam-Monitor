@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Globe,
   CheckCircle,
@@ -13,11 +13,13 @@ import {
 } from 'lucide-react'
 import type { Platform } from '@tcf-tracker/types'
 import { MOCK_PLATFORMS } from '@/lib/mock-data'
+import { supabase, isDemoMode } from '@/lib/supabase'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { formatTimeAgo } from '@tcf-tracker/utils'
+import { AF_VANCOUVER_DETECTION_URL } from '@/app/api/monitor/af-vancouver-parser'
 
 const healthConfig = {
   operational: {
@@ -192,7 +194,11 @@ function PlatformCard({ platform }: { platform: Platform }) {
       {/* Footer */}
       <div className="px-5 pb-5">
         <a
-          href={platform.entryUrl}
+          href={
+            platform.id === 'af-vancouver'
+              ? AF_VANCOUVER_DETECTION_URL
+              : platform.entryUrl
+          }
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center justify-center gap-1.5 w-full py-2 border border-slate-200 rounded-xl text-xs text-slate-600 font-medium hover:bg-slate-50 hover:border-slate-300 transition-colors"
@@ -207,8 +213,31 @@ function PlatformCard({ platform }: { platform: Platform }) {
 
 export default function PlatformsPage() {
   const [search, setSearch] = useState('')
+  const [afLastCheck, setAfLastCheck] = useState<string | null>(null)
 
-  const filtered = MOCK_PLATFORMS.filter(
+  useEffect(() => {
+    if (isDemoMode || !supabase) return
+    // Load last observation time for AF Vancouver to show accurate "last check"
+    supabase
+      .from('seat_observations')
+      .select('observed_at')
+      .eq('platform_id', 'af-vancouver')
+      .order('observed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.observed_at) setAfLastCheck(data.observed_at)
+      })
+  }, [])
+
+  // Inject real last-check time for AF Vancouver
+  const platforms = MOCK_PLATFORMS.map((p) =>
+    p.id === 'af-vancouver' && afLastCheck
+      ? { ...p, lastHealthCheck: afLastCheck }
+      : p,
+  )
+
+  const filtered = platforms.filter(
     (p) =>
       search === '' ||
       p.displayName.toLowerCase().includes(search.toLowerCase()) ||
@@ -216,14 +245,14 @@ export default function PlatformsPage() {
       p.examTypesSupported.some((e) => e.toLowerCase().includes(search.toLowerCase()))
   )
 
-  const operational = MOCK_PLATFORMS.filter((p) => p.healthStatus === 'operational').length
-  const degraded = MOCK_PLATFORMS.filter((p) => p.healthStatus === 'degraded').length
+  const operational = platforms.filter((p) => p.healthStatus === 'operational').length
+  const degraded = platforms.filter((p) => p.healthStatus === 'degraded').length
 
   return (
     <div className="flex flex-col flex-1">
       <DashboardHeader
         title="Platforms"
-        subtitle={`${MOCK_PLATFORMS.length} supported exam centers`}
+        subtitle={`${platforms.length} supported exam centers`}
       />
 
       <main className="flex-1 p-6">
