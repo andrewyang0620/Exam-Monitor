@@ -20,32 +20,47 @@ import {
 } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
 import type {
-  MonitoringRule,
+  Platform,
   SeatObservation,
   ChangeEvent,
   NotificationDelivery,
   DashboardStats,
 } from '@tcf-tracker/types'
-import type { DbRule, DbObservation, DbChangeEvent, DbNotificationWithEvent } from '@/lib/database.types'
+import type { DbPlatform, DbObservation, DbChangeEvent, DbNotificationWithEvent } from '@/lib/database.types'
 
-// ─── DB → Domain type converters ─────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function toRule(r: DbRule): MonitoringRule {
-  const platform = MOCK_PLATFORMS.find((p) => p.id === r.platform_id)
-  return {
-    id: r.id,
-    userId: r.user_id,
-    platformId: r.platform_id,
-    examType: r.exam_type as MonitoringRule['examType'],
-    city: r.city ?? r.platform_id,
-    datePreference: r.date_preference ?? 'any',
-    channels: r.channels as MonitoringRule['channels'],
-    priority: (Math.min(3, Math.max(1, r.priority)) as 1 | 2 | 3),
-    isActive: r.is_active,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    platformDisplayName: platform?.displayName ?? r.platform_id,
-  }
+// Merge DB platform rows with mock fallback for platforms not yet in DB
+function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
+  const dbIds = new Set(dbRows.map((r) => r.id))
+  return [
+    ...dbRows.map((r) => {
+      const mock = MOCK_PLATFORMS.find((p) => p.id === r.id)
+      return {
+        id: r.id,
+        displayName: r.display_name,
+        shortName: mock?.shortName ?? r.display_name,
+        city: r.city,
+        province: r.province,
+        country: r.country,
+        examTypesSupported: r.exam_types_supported as Platform['examTypesSupported'],
+        entryUrl: r.entry_url,
+        monitoring: {
+          level: r.monitoring_level as Platform['monitoring']['level'],
+          detectionMode: r.detection_mode as Platform['monitoring']['detectionMode'],
+          requiresAuth: false,
+          pollingIntervalSec: r.polling_interval_s,
+        },
+        autofill: mock?.autofill ?? { supported: r.autofill_supported, level: 'full' as const, fieldsCount: 0 },
+        healthStatus: r.health_status as Platform['healthStatus'],
+        lastHealthCheck: r.last_health_check ?? undefined,
+        riskLevel: mock?.riskLevel ?? 'low',
+        fixedReleaseWindows: mock?.fixedReleaseWindows,
+        notes: mock?.notes,
+      } satisfies Platform
+    }),
+    ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
+  ]
 }
 
 function toObservation(o: DbObservation): SeatObservation {
@@ -106,7 +121,11 @@ export default function DashboardPage() {
     DEMO_USER.displayName?.split(' ')[0] ?? 'there',
   )
   const [stats, setStats] = useState<DashboardStats>(MOCK_STATS)
-  const [rules, setRules] = useState<MonitoringRule[]>(isDemoMode ? MOCK_RULES : [])
+  const [platforms, setPlatforms] = useState<Platform[]>(isDemoMode ? MOCK_PLATFORMS : [])
+  const [followedIds, setFollowedIds] = useState<Set<string>>(
+    isDemoMode ? new Set(MOCK_RULES.map((r) => r.platformId)) : new Set<string>(),
+  )
+  const [userId, setUserId] = useState<string | null>(null)
   const [observations, setObservations] = useState<SeatObservation[]>(
     isDemoMode ? MOCK_OBSERVATIONS : [],
   )
@@ -128,6 +147,8 @@ export default function DashboardPage() {
     } = await supabase!.auth.getUser()
     if (!user) return
 
+    setUserId(user.id)
+
     // Profile display name
     const { data: profile } = await supabase!
       .from('profiles')
@@ -138,16 +159,24 @@ export default function DashboardPage() {
       setDisplayName(profile.display_name.split(' ')[0])
     }
 
-    // Rules
-    const { data: dbRules } = await supabase!
-      .from('monitoring_rules')
+    // All platforms (DB rows + mock fallback for platforms not in DB yet)
+    const { data: dbPlatformRows } = await supabase!
+      .from('platforms')
       .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-    const mappedRules = (dbRules ?? []).map(toRule)
-    setRules(mappedRules)
+      .eq('is_active', true)
+      .order('display_name')
+    const mergedPlatforms = mergePlatforms((dbPlatformRows ?? []) as DbPlatform[])
+    setPlatforms(mergedPlatforms)
 
-    // Latest observations per platform (latest N)
+    // Subscriptions (monitoring_rules = followed platforms)
+    const { data: dbSubs } = await supabase!
+      .from('monitoring_rules')
+      .select('platform_id, city')
+      .eq('user_id', user.id)
+    const followedPlatformIds = new Set<string>((dbSubs ?? []).map((r) => r.platform_id as string))
+    setFollowedIds(followedPlatformIds)
+
+    // Latest observations per platform
     const { data: dbObs } = await supabase!
       .from('seat_observations')
       .select('*')
@@ -177,27 +206,68 @@ export default function DashboardPage() {
     setNotifications(mappedNotifs)
 
     // Computed stats
-    const activeRules = (dbRules ?? []).filter((r) => r.is_active).length
     const openAlerts = mappedEvents.filter((e) => e.newStatus === 'OPEN').length
     const lastCheck = (dbObs ?? [])[0]?.observed_at ?? new Date().toISOString()
-    const uniqueCities = [
-      ...new Set((dbRules ?? []).map((r) => r.city).filter(Boolean)),
-    ]
-
-    // Platform count = real DB platforms + remaining mock platforms not yet in DB
-    const { data: dbPlatforms } = await supabase!.from('platforms').select('id').eq('is_active', true)
-    const dbPlatformIds = new Set((dbPlatforms ?? []).map((p) => p.id))
-    const mockOnlyCount = MOCK_PLATFORMS.filter((p) => !dbPlatformIds.has(p.id)).length
-    const totalPlatforms = (dbPlatforms?.length ?? 0) + mockOnlyCount
+    const uniqueCities = [...new Set((dbSubs ?? []).map((r) => r.city as string).filter(Boolean))]
+    const dbPlatIds = new Set((dbPlatformRows ?? []).map((p) => p.id as string))
+    const mockOnlyCount = MOCK_PLATFORMS.filter((p) => !dbPlatIds.has(p.id)).length
+    const totalPlatforms = (dbPlatformRows?.length ?? 0) + mockOnlyCount
 
     setStats({
-      activeRulesCount: activeRules,
+      activeRulesCount: followedPlatformIds.size,
       openAlertsCount: openAlerts,
       lastCheckAt: lastCheck,
       supportedPlatformsCount: totalPlatforms,
-      monitoredCitiesCount: uniqueCities.length,
+      monitoredCitiesCount: uniqueCities.length || mergedPlatforms.length,
       totalNotificationsSent: (dbNotifs ?? []).length,
     })
+  }
+
+  async function handleFollow(platform: Platform) {
+    // Optimistic update
+    setFollowedIds((prev) => new Set([...prev, platform.id]))
+    setStats((prev) => ({ ...prev, activeRulesCount: prev.activeRulesCount + 1 }))
+
+    if (isDemoMode || !supabase || !userId) return
+
+    const primaryExam = (platform.examTypesSupported as string[])[0] ?? 'TCF Canada'
+    const { error } = await supabase.from('monitoring_rules').insert({
+      user_id: userId,
+      platform_id: platform.id,
+      exam_type: primaryExam,
+      city: platform.city,
+      channels: ['browser', 'email'],
+      is_active: true,
+      priority: 1,
+      date_preference: 'any',
+    })
+    if (error) {
+      // Revert on failure
+      setFollowedIds((prev) => {
+        const s = new Set(prev)
+        s.delete(platform.id)
+        return s
+      })
+      setStats((prev) => ({ ...prev, activeRulesCount: Math.max(0, prev.activeRulesCount - 1) }))
+    }
+  }
+
+  async function handleUnfollow(platformId: string) {
+    // Optimistic update
+    setFollowedIds((prev) => {
+      const s = new Set(prev)
+      s.delete(platformId)
+      return s
+    })
+    setStats((prev) => ({ ...prev, activeRulesCount: Math.max(0, prev.activeRulesCount - 1) }))
+
+    if (isDemoMode || !supabase || !userId) return
+
+    await supabase
+      .from('monitoring_rules')
+      .delete()
+      .eq('user_id', userId)
+      .eq('platform_id', platformId)
   }
 
   const liveAlert = !alertDismissed
@@ -227,8 +297,11 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-6">
           {/* Left: Monitored exams */}
           <MonitoredExamsList
-            rules={rules}
+            platforms={platforms}
             observations={observations}
+            followedIds={followedIds}
+            onFollow={handleFollow}
+            onUnfollow={handleUnfollow}
           />
 
           {/* Right: Notifications panel */}

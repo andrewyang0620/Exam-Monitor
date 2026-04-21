@@ -1,483 +1,240 @@
-'use client'
+﻿'use client'
 
+import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import {
-  Plus,
   Bell,
   Mail,
-  Smartphone,
-  ToggleLeft,
-  ToggleRight,
   MapPin,
-  Calendar,
   ExternalLink,
-  Trash2,
-  ChevronDown,
-  CheckCircle,
+  Bookmark,
+  BookmarkMinus,
 } from 'lucide-react'
-import type { MonitoringRule, Platform, ExamType, SeatObservation } from '@tcf-tracker/types'
-import { getStatusColor, getStatusDotColor, getStatusLabel, formatTimeAgo } from '@tcf-tracker/utils'
+import type { MonitoringRule, Platform, SeatObservation } from '@tcf-tracker/types'
+import { getStatusDotColor, getStatusLabel, formatTimeAgo } from '@tcf-tracker/utils'
 import { MOCK_RULES, MOCK_PLATFORMS, MOCK_OBSERVATIONS } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
 import type { DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+import type { BadgeProps } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-const EXAM_TYPES: ExamType[] = ['TCF Canada', 'TEF Canada', 'TEF', 'TCF', 'DELF', 'DALF']
-const CHANNELS = [
-  { id: 'browser', label: 'Browser', icon: Bell },
-  { id: 'email', label: 'Email', icon: Mail },
-  { id: 'sms', label: 'SMS', icon: Smartphone },
-] as const
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function RuleCard({
+function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
+  const dbIds = new Set(dbRows.map((r) => r.id))
+  return [
+    ...dbRows.map((r) => {
+      const mock = MOCK_PLATFORMS.find((p) => p.id === r.id)
+      return {
+        id: r.id,
+        displayName: r.display_name,
+        shortName: mock?.shortName ?? r.display_name,
+        city: r.city,
+        province: r.province,
+        country: r.country,
+        examTypesSupported: r.exam_types_supported as Platform['examTypesSupported'],
+        entryUrl: r.entry_url,
+        monitoring: {
+          level: r.monitoring_level as Platform['monitoring']['level'],
+          detectionMode: r.detection_mode as Platform['monitoring']['detectionMode'],
+          requiresAuth: false,
+          pollingIntervalSec: r.polling_interval_s,
+        },
+        autofill: mock?.autofill ?? { supported: r.autofill_supported, level: 'full' as const, fieldsCount: 0 },
+        healthStatus: r.health_status as Platform['healthStatus'],
+        lastHealthCheck: r.last_health_check ?? undefined,
+        riskLevel: mock?.riskLevel ?? 'low',
+        fixedReleaseWindows: mock?.fixedReleaseWindows,
+        notes: mock?.notes,
+      } satisfies Platform
+    }),
+    ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
+  ]
+}
+
+function toObservation(o: {
+  id: string; platform_id: string; center_name: string; city: string;
+  province: string | null; exam_type: string; session_label: string | null;
+  session_date: string | null; availability_status: string; seats_text: string | null;
+  observed_at: string; source_hash: string | null; confidence: number | null;
+}): SeatObservation {
+  return {
+    id: o.id,
+    platformId: o.platform_id,
+    centerName: o.center_name,
+    city: o.city,
+    province: o.province ?? '',
+    examType: o.exam_type as SeatObservation['examType'],
+    sessionLabel: o.session_label ?? undefined,
+    sessionDate: o.session_date ?? undefined,
+    availabilityStatus: o.availability_status as SeatObservation['availabilityStatus'],
+    seatsText: o.seats_text ?? undefined,
+    observedAt: o.observed_at,
+    sourceHash: o.source_hash ?? '',
+    confidence: o.confidence ?? 1,
+  }
+}
+
+// â”€â”€â”€ StatusBadge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function StatusBadge({ status }: { status: SeatObservation['availabilityStatus'] }) {
+  const variantMap: Record<string, BadgeProps['variant']> = {
+    OPEN: 'open', SOLD_OUT: 'sold', EXPECTED: 'expected', MONITORING: 'monitoring', UNKNOWN: 'unknown',
+  }
+  return (
+    <Badge variant={variantMap[status] ?? 'unknown'}>
+      <span className={cn('w-1.5 h-1.5 rounded-full', getStatusDotColor(status))} />
+      {getStatusLabel(status)}
+    </Badge>
+  )
+}
+
+// â”€â”€â”€ SubscriptionCard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function SubscriptionCard({
   rule,
-  observations,
-  onToggle,
-  onDelete,
+  platform,
+  obs,
+  onToggleChannel,
+  onUnfollow,
 }: {
   rule: MonitoringRule
-  observations: SeatObservation[]
-  onToggle: (id: string) => void
-  onDelete: (id: string) => void
+  platform: Platform | undefined
+  obs: SeatObservation | undefined
+  onToggleChannel: (ruleId: string, channel: string) => void
+  onUnfollow: (ruleId: string) => void
 }) {
-  const obs = observations.find((o) => o.platformId === rule.platformId)
-  // Use real registration URL for AF Vancouver; fall back to platform entryUrl
   const officialUrl =
     rule.platformId === 'af-vancouver'
-      ? 'https://www.alliancefrancaise.ca/products/ciep-tcf-canada-full-exam/'
-      : MOCK_PLATFORMS.find((p) => p.id === rule.platformId)?.entryUrl ?? '#'
+      ? 'https://www.alliancefrancaise.ca/products/categories/exams-and-tests/tcf-canada/'
+      : platform?.entryUrl ?? '#'
 
   return (
-    <div
-      className={cn(
-        'bg-white rounded-2xl border shadow-card transition-all duration-200',
-        rule.isActive ? 'border-slate-200 hover:shadow-card-hover' : 'border-slate-100 opacity-60'
-      )}
-    >
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-sm font-semibold text-slate-900 truncate">
-                {rule.platformDisplayName}
-              </h3>
-              {obs && (
-                <Badge
-                  variant={
-                    obs.availabilityStatus === 'OPEN'
-                      ? 'open'
-                      : obs.availabilityStatus === 'SOLD_OUT'
-                      ? 'sold'
-                      : obs.availabilityStatus === 'EXPECTED'
-                      ? 'expected'
-                      : 'monitoring'
-                  }
-                >
-                  <span className={cn('w-1.5 h-1.5 rounded-full', getStatusDotColor(obs.availabilityStatus))} />
-                  {getStatusLabel(obs.availabilityStatus)}
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
-              <span className="font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                {rule.examType}
-              </span>
-              {rule.city && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  {rule.city}
-                </span>
-              )}
-              {rule.datePreference && rule.datePreference !== 'any' && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {rule.datePreference}
-                </span>
-              )}
-            </div>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-card p-5">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-semibold text-slate-900 truncate">
+              {rule.platformDisplayName}
+            </h3>
+            {obs && <StatusBadge status={obs.availabilityStatus} />}
           </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => onToggle(rule.id)}
-              className="text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              {rule.isActive ? (
-                <ToggleRight className="w-7 h-7 text-blue-600" />
-              ) : (
-                <ToggleLeft className="w-7 h-7" />
-              )}
-            </button>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span className="font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+              {rule.examType}
+            </span>
+            {rule.city && (
+              <span className="flex items-center gap-1">
+                <MapPin className="w-3 h-3" />
+                {rule.city}
+              </span>
+            )}
           </div>
         </div>
+        <button
+          onClick={() => onUnfollow(rule.id)}
+          className="flex-shrink-0 text-xs text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 pt-0.5"
+        >
+          <BookmarkMinus className="w-3.5 h-3.5" />
+          Unfollow
+        </button>
+      </div>
 
-        {/* Observation detail */}
-        {obs && (
-          <div className="bg-slate-50 rounded-xl p-3 mb-4 text-xs text-slate-500">
-            <div className="flex items-center justify-between">
-              <span>{obs.seatsText}</span>
-              <span className="text-slate-400">{formatTimeAgo(obs.observedAt)}</span>
-            </div>
+      {/* Last observation */}
+      {obs?.seatsText && (
+        <div className="bg-slate-50 rounded-xl p-3 mb-4 text-xs text-slate-500">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate">{obs.seatsText}</span>
+            <span className="text-slate-400 flex-shrink-0">{formatTimeAgo(obs.observedAt)}</span>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Channels */}
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">Alert via</span>
-          {CHANNELS.map(({ id, label, icon: Icon }) => (
-            <div
-              key={id}
+      {/* Notification channels */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">Notify via</span>
+        {(['browser', 'email'] as const).map((ch) => {
+          const enabled = rule.channels.includes(ch)
+          const Icon = ch === 'browser' ? Bell : Mail
+          return (
+            <button
+              key={ch}
+              onClick={() => onToggleChannel(rule.id, ch)}
               className={cn(
                 'flex items-center gap-1 text-xs px-2 py-1 rounded-lg border transition-colors',
-                rule.channels.includes(id as any)
+                enabled
                   ? 'bg-blue-50 border-blue-200 text-blue-700'
-                  : 'border-slate-200 text-slate-400'
+                  : 'border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-600'
               )}
             >
               <Icon className="w-3 h-3" />
-              {label}
-            </div>
-          ))}
-          {rule.channels.includes('sms') && (
-            <span className="text-[10px] text-slate-400">(mock in V1)</span>
-          )}
-        </div>
+              {ch === 'browser' ? 'Browser' : 'Email'}
+            </button>
+          )
+        })}
+      </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          {obs?.availabilityStatus === 'OPEN' && (
-            <a
-              href={officialUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors flex-1 justify-center"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Open Official Page
-            </a>
-          )}
-          <Button size="sm" variant="outline" className="gap-1.5 text-xs">
-            Edit
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="text-slate-400 hover:text-red-500"
-            onClick={() => onDelete(rule.id)}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <a
+          href={officialUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          <ExternalLink className="w-3 h-3" />
+          Official page
+        </a>
       </div>
     </div>
   )
 }
 
-function CreateRuleDialog({
-  open,
-  onClose,
-  onCreated,
-  platforms,
-}: {
-  open: boolean
-  onClose: () => void
-  onCreated: () => void
-  platforms: Platform[]
-}) {
-  const [step, setStep] = useState(1)
-  const [selectedPlatform, setSelectedPlatform] = useState('')
-  const [selectedExam, setSelectedExam] = useState<ExamType | ''>('')
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(['browser', 'email'])
-  const [datePreference, setDatePreference] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [done, setDone] = useState(false)
-  const [saveError, setSaveError] = useState('')
+// â”€â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  const platform = platforms.find((p) => p.id === selectedPlatform)
-  const availableExams = platform?.examTypesSupported ?? EXAM_TYPES
-
-  const handleSave = async () => {
-    setSaving(true)
-    setSaveError('')
-
-    if (isDemoMode || !supabase) {
-      // Demo mode: simulate save
-      await new Promise((r) => setTimeout(r, 800))
-      setSaving(false)
-      setDone(true)
-      await new Promise((r) => setTimeout(r, 1200))
-      onCreated()
-      onClose()
-      resetForm()
-      return
-    }
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
-      const { error } = await supabase.from('monitoring_rules').insert({
-        user_id: user.id,
-        platform_id: selectedPlatform,
-        exam_type: selectedExam,
-        city: platform?.city ?? null,
-        date_preference: datePreference.trim() || 'any',
-        channels: selectedChannels,
-        priority: 1,
-        is_active: true,
-      })
-      if (error) throw error
-
-      setSaving(false)
-      setDone(true)
-      await new Promise((r) => setTimeout(r, 1200))
-      onCreated()
-      onClose()
-      resetForm()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to save rule'
-      setSaveError(msg)
-      setSaving(false)
-    }
-  }
-
-  const resetForm = () => {
-    setStep(1)
-    setSelectedPlatform('')
-    setSelectedExam('')
-    setDatePreference('')
-    setDone(false)
-    setSaveError('')
-  }
-
-  const toggleChannel = (ch: string) => {
-    setSelectedChannels((prev) =>
-      prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch],
-    )
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={() => onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add Monitoring Rule</DialogTitle>
-          <DialogDescription>
-            Choose a platform, exam type, and alert channels.
-          </DialogDescription>
-        </DialogHeader>
-
-        {done ? (
-          <div className="flex flex-col items-center justify-center py-8 gap-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-emerald-600" />
-            </div>
-            <p className="text-sm font-medium text-slate-900">Rule created!</p>
-            <p className="text-xs text-slate-500">Monitoring will start within the next check cycle.</p>
-          </div>
-        ) : (
-          <div className="space-y-5 py-2">
-            {saveError && (
-              <div className="bg-red-50 border border-red-100 rounded-lg p-3">
-                <p className="text-xs text-red-700">{saveError}</p>
-              </div>
-            )}
-
-            {/* Platform select */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-2">
-                Exam center
-              </label>
-              <div className="relative">
-                <select
-                  className="w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={selectedPlatform}
-                  onChange={(e) => {
-                    setSelectedPlatform(e.target.value)
-                    setSelectedExam('')
-                  }}
-                >
-                  <option value="">Select a platform...</option>
-                  {platforms.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.displayName} · {p.city}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Exam type */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-2">
-                Exam type
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {availableExams.map((exam) => (
-                  <button
-                    key={exam}
-                    onClick={() => setSelectedExam(exam)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
-                      selectedExam === exam
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600',
-                    )}
-                  >
-                    {exam}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Date preference */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-2">
-                Date preference <span className="text-slate-400 font-normal">(optional)</span>
-              </label>
-              <Input
-                type="text"
-                placeholder="e.g. any, 2026-Q2, June 2026"
-                className="text-sm"
-                value={datePreference}
-                onChange={(e) => setDatePreference(e.target.value)}
-              />
-            </div>
-
-            {/* Alert channels */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-2">
-                Alert channels
-              </label>
-              <div className="flex gap-2">
-                {CHANNELS.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    onClick={() => toggleChannel(id)}
-                    disabled={id === 'sms'}
-                    className={cn(
-                      'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
-                      selectedChannels.includes(id)
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-slate-200 text-slate-600 hover:border-blue-300',
-                      id === 'sms' && 'opacity-50 cursor-not-allowed'
-                    )}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    {label}
-                    {id === 'sms' && <span className="text-[9px] opacity-70">soon</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!done && (
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose} size="sm">
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!selectedPlatform || !selectedExam || saving}
-            >
-              {saving ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Saving...
-                </div>
-              ) : (
-                'Create Rule'
-              )}
-            </Button>
-          </DialogFooter>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-export default function RulesPage() {
+export default function WatchlistPage() {
   const [rules, setRules] = useState<MonitoringRule[]>(isDemoMode ? MOCK_RULES : [])
-  const [observations, setObservations] = useState(isDemoMode ? MOCK_OBSERVATIONS : [])
   const [platforms, setPlatforms] = useState<Platform[]>(MOCK_PLATFORMS)
-  const [createOpen, setCreateOpen] = useState(false)
+  const [observations, setObservations] = useState<SeatObservation[]>(isDemoMode ? MOCK_OBSERVATIONS : [])
 
   useEffect(() => {
     if (isDemoMode || !supabase) return
-    loadRules()
-    loadObservations()
-    loadPlatforms()
+    loadData()
   }, [])
 
-  async function loadPlatforms() {
-    const { data } = await supabase!
-      .from('platforms')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_name')
-    if (!data || data.length === 0) return
-    // Merge: DB rows replace matching mocks; remaining mocks kept
-    const dbIds = new Set(data.map((r: DbPlatform) => r.id))
-    const merged: Platform[] = [
-      ...data.map((r: DbPlatform) => {
-        const mock = MOCK_PLATFORMS.find((p) => p.id === r.id)
-        return {
-          id: r.id,
-          displayName: r.display_name,
-          shortName: mock?.shortName ?? r.display_name,
-          city: r.city,
-          province: r.province,
-          country: r.country,
-          examTypesSupported: r.exam_types_supported as Platform['examTypesSupported'],
-          entryUrl: r.entry_url,
-          monitoring: {
-            level: r.monitoring_level as Platform['monitoring']['level'],
-            detectionMode: r.detection_mode as Platform['monitoring']['detectionMode'],
-            requiresAuth: false,
-            pollingIntervalSec: r.polling_interval_s,
-          },
-          autofill: mock?.autofill ?? { supported: r.autofill_supported, level: 'full' as const, fieldsCount: 0 },
-          healthStatus: r.health_status as Platform['healthStatus'],
-          lastHealthCheck: r.last_health_check ?? undefined,
-          riskLevel: mock?.riskLevel ?? 'low',
-        } satisfies Platform
-      }),
-      ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
-    ]
-    setPlatforms(merged)
-  }
-
-  async function loadRules() {
-    const { data: { user } } = await supabase!.auth.getUser()
+  async function loadData() {
+    const {
+      data: { user },
+    } = await supabase!.auth.getUser()
     if (!user) return
-    const { data } = await supabase!
+
+    // Subscriptions
+    const { data: dbSubs } = await supabase!
       .from('monitoring_rules')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: true })
-    if (data) {
+
+    // Platforms
+    const { data: dbPlatRows } = await supabase!
+      .from('platforms')
+      .select('*')
+      .eq('is_active', true)
+    const mergedPlatforms = mergePlatforms((dbPlatRows ?? []) as DbPlatform[])
+    setPlatforms(mergedPlatforms)
+
+    if (dbSubs) {
       setRules(
-        data.map((r) => ({
+        dbSubs.map((r) => ({
           id: r.id,
           userId: r.user_id,
           platformId: r.platform_id,
           examType: r.exam_type as MonitoringRule['examType'],
-          city: r.city ?? r.platform_id,
+          city: r.city ?? '',
           datePreference: r.date_preference ?? 'any',
           channels: r.channels as MonitoringRule['channels'],
           priority: (Math.min(3, Math.max(1, r.priority)) as 1 | 2 | 3),
@@ -485,75 +242,60 @@ export default function RulesPage() {
           createdAt: r.created_at,
           updatedAt: r.updated_at,
           platformDisplayName:
-            platforms.find((p) => p.id === r.platform_id)?.displayName ?? r.platform_id,
+            mergedPlatforms.find((p) => p.id === r.platform_id)?.displayName ?? r.platform_id,
         })),
       )
     }
-  }
 
-  async function loadObservations() {
-    const { data } = await supabase!
+    const { data: dbObs } = await supabase!
       .from('seat_observations')
       .select('*')
       .order('observed_at', { ascending: false })
       .limit(20)
-    if (data) {
-      setObservations(
-        data.map((o) => ({
-          id: o.id,
-          platformId: o.platform_id,
-          centerName: o.center_name,
-          city: o.city,
-          province: o.province ?? '',
-          examType: o.exam_type as SeatObservation['examType'],
-          sessionLabel: o.session_label ?? undefined,
-          sessionDate: o.session_date ?? undefined,
-          availabilityStatus: o.availability_status as SeatObservation['availabilityStatus'],
-          seatsText: o.seats_text ?? undefined,
-          observedAt: o.observed_at,
-          sourceHash: o.source_hash ?? '',
-          confidence: o.confidence ?? 1,
-        })),
-      )
-    }
+    if (dbObs) setObservations(dbObs.map(toObservation))
   }
 
-  const toggleRule = async (id: string) => {
-    const rule = rules.find((r) => r.id === id)
-    if (!rule) return
-    const newActive = !rule.isActive
-
-    // Optimistic update
-    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: newActive } : r)))
-
+  const toggleChannel = async (ruleId: string, channel: string) => {
+    setRules((prev) =>
+      prev.map((r) => {
+        if (r.id !== ruleId) return r
+        const has = r.channels.includes(channel as never)
+        const newChannels = has
+          ? r.channels.filter((c) => c !== channel)
+          : ([...r.channels, channel] as MonitoringRule['channels'])
+        return { ...r, channels: newChannels }
+      }),
+    )
     if (!isDemoMode && supabase) {
-      const { error } = await supabase
+      const rule = rules.find((r) => r.id === ruleId)
+      if (!rule) return
+      const has = rule.channels.includes(channel as never)
+      const newChannels = has ? rule.channels.filter((c) => c !== channel) : [...rule.channels, channel]
+      await supabase
         .from('monitoring_rules')
-        .update({ is_active: newActive, updated_at: new Date().toISOString() })
-        .eq('id', id)
-      if (error) {
-        // Revert on failure
-        setRules((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: !newActive } : r)))
-      }
+        .update({ channels: newChannels, updated_at: new Date().toISOString() })
+        .eq('id', ruleId)
     }
   }
 
-  const deleteRule = async (id: string) => {
-    // Optimistic update
-    setRules((prev) => prev.filter((r) => r.id !== id))
-
+  const unfollow = async (ruleId: string) => {
+    setRules((prev) => prev.filter((r) => r.id !== ruleId))
     if (!isDemoMode && supabase) {
-      await supabase.from('monitoring_rules').delete().eq('id', id)
+      await supabase.from('monitoring_rules').delete().eq('id', ruleId)
     }
   }
 
-  const activeCount = rules.filter((r) => r.isActive).length
+  const obsMap = new Map(observations.map((o) => [o.platformId, o]))
 
   return (
     <div className="flex flex-col flex-1">
       <DashboardHeader
-        title="My Exams"
-        subtitle={`${activeCount} active monitoring rule${activeCount !== 1 ? 's' : ''}`}
+        title="Watchlist"
+        subtitle={
+          rules.length > 0
+            ? `${rules.length} followed exam${rules.length !== 1 ? 's' : ''}`
+            : 'No followed exams yet'
+        }
       />
 
       <main className="flex-1 p-6">
@@ -561,88 +303,69 @@ export default function RulesPage() {
           {/* Page header */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Monitoring Rules</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Followed Exams</h2>
               <p className="text-sm text-slate-500 mt-0.5">
-                Add rules to monitor specific exam centers and types
+                Control notifications for exams you follow
               </p>
             </div>
-            <Button onClick={() => setCreateOpen(true)} className="gap-1.5">
-              <Plus className="w-4 h-4" />
-              Add Rule
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/dashboard">Browse All Exams</Link>
             </Button>
           </div>
 
-          {/* Rules grid */}
+          {/* Content */}
           {rules.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-card p-12 text-center">
               <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mx-auto mb-4">
-                <Plus className="w-6 h-6 text-slate-400" />
+                <Bookmark className="w-6 h-6 text-slate-400" />
               </div>
-              <p className="text-sm font-medium text-slate-700 mb-1">No monitoring rules yet</p>
+              <p className="text-sm font-medium text-slate-700 mb-1">No followed exams</p>
               <p className="text-xs text-slate-500 mb-4">
-                Add a rule to start tracking exam seat availability
+                Go to the dashboard, find an exam center, and click Follow to receive alerts.
               </p>
-              <Button size="sm" onClick={() => setCreateOpen(true)}>
-                Add First Rule
+              <Button size="sm" asChild>
+                <Link href="/dashboard">Browse All Exams</Link>
               </Button>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {rules.map((rule) => (
-                <RuleCard
+                <SubscriptionCard
                   key={rule.id}
                   rule={rule}
-                  observations={observations}
-                  onToggle={toggleRule}
-                  onDelete={deleteRule}
+                  platform={platforms.find((p) => p.id === rule.platformId)}
+                  obs={obsMap.get(rule.platformId)}
+                  onToggleChannel={toggleChannel}
+                  onUnfollow={unfollow}
                 />
               ))}
-
-              {/* Add more card */}
-              <button
-                onClick={() => setCreateOpen(true)}
-                className="border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/30 transition-all duration-200"
-              >
-                <Plus className="w-6 h-6" />
-                <span className="text-sm font-medium">Add monitoring rule</span>
-              </button>
             </div>
           )}
 
-          {/* Info box */}
+          {/* Info */}
           <div className="mt-8 bg-slate-50 border border-slate-200 rounded-2xl p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-2">How monitoring works</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-2">How it works</h3>
             <ul className="space-y-1.5 text-xs text-slate-500">
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">•</span>
-                We check public exam pages every 1–5 minutes depending on the platform
+                <span className="text-blue-500 mt-0.5">â€¢</span>
+                The system continuously monitors public exam pages â€” no setup required
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">•</span>
-                When seat status changes, you receive an alert via your chosen channels
+                <span className="text-blue-500 mt-0.5">â€¢</span>
+                When seats open, you receive alerts via your chosen channels
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">•</span>
-                Open the official page and use the Chrome extension to autofill your profile
+                <span className="text-blue-500 mt-0.5">â€¢</span>
+                Use the Chrome extension to autofill your registration profile locally
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">•</span>
+                <span className="text-blue-500 mt-0.5">â€¢</span>
                 Final registration and payment are always completed manually by you
               </li>
             </ul>
           </div>
         </div>
       </main>
-
-      <CreateRuleDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={() => {
-          loadRules()
-          loadObservations()
-        }}
-        platforms={platforms}
-      />
     </div>
   )
 }

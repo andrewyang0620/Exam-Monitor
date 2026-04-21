@@ -11,12 +11,12 @@ interface StatsCardsProps {
 
 const statCards = (stats: DashboardStats) => [
   {
-    label: 'Active Rules',
+    label: 'Following',
     value: stats.activeRulesCount,
     icon: BookOpen,
     iconColor: 'text-blue-600',
     iconBg: 'bg-blue-50',
-    sublabel: 'monitoring rules',
+    sublabel: 'followed exams',
     accent: false,
   },
   {
