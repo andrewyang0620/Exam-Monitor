@@ -18,8 +18,7 @@ export type ExamType =
 
 export type AvailabilityStatus =
   | 'OPEN'
-  | 'SOLD_OUT'
-  | 'EXPECTED'
+  | 'NOT_OPEN'
   | 'MONITORING'
   | 'UNKNOWN'
 
@@ -70,6 +69,10 @@ export interface SeatObservation {
   observedAt: string             // ISO timestamp
   sourceHash: string             // MD5 of relevant content section
   confidence: number             // 0.0 to 1.0
+  // Informational fields — stored in metadata jsonb
+  nextWindowText?: string        // e.g. "First week of June 2026"
+  upcomingSessionLabels?: string[] // e.g. ["3rd trimester of 2026"]
+  soldOutSessionLabels?: string[]  // e.g. ["April 2026", "June 2026"]
   metadata?: Record<string, unknown>
 }
 
@@ -208,6 +211,8 @@ export interface Platform {
   autofill: PlatformAutofillCapability
   healthStatus: PlatformHealthStatus
   lastHealthCheck?: string
+  lastSuccessAt?: string          // When the most recent successful auto-monitor run completed
+  isPreview?: boolean             // True for platforms not yet backed by a real parser/pipeline
   fixedReleaseWindows?: ReleaseWindow[]
   riskLevel: RiskLevel
   notes?: string

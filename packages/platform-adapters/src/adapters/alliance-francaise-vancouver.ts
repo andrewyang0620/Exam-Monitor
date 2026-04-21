@@ -18,8 +18,10 @@ const allianceFranaiseVancouver: PlatformAdapter = {
   region: 'Greater Vancouver',
 
   examTypesSupported: ['TEF', 'TEF Canada', 'TCF Canada'],
-  entryUrl: 'https://www.afvancouver.com/exams',
-  monitoringUrl: 'https://www.afvancouver.com/exams',
+  // Detection URL (public page listing upcoming sessions)
+  entryUrl: 'https://www.alliancefrancaise.ca/en/language/exams/tcf-canada/',
+  // URL polled by the monitoring pipeline
+  monitoringUrl: 'https://www.alliancefrancaise.ca/en/language/exams/tcf-canada/',
 
   detectionMode: 'html',
   authRequiredForMonitoring: false,
@@ -90,21 +92,21 @@ const allianceFranaiseVancouver: PlatformAdapter = {
   supportsLocalAutofill: true,
   supportsJumpToOfficialPage: true,
   contentScriptUrlPatterns: [
-    '*://www.afvancouver.com/*',
-    '*://afvancouver.com/*',
+    '*://www.alliancefrancaise.ca/*',
+    '*://alliancefrancaise.ca/*',
   ],
   autofillFieldMap: {
-    firstName: 'input[name="first_name"]',
-    lastName: 'input[name="last_name"]',
-    email: 'input[name="email"]',
-    phone: 'input[name="phone"]',
-    dob: 'input[name="date_of_birth"]',
-    addressLine1: 'input[name="address"]',
-    city: 'input[name="city"]',
-    province: 'select[name="province"]',
-    postalCode: 'input[name="postal_code"]',
-    country: 'select[name="country"]',
-    idNumber: 'input[name="passport_number"]',
+    firstName: 'input[name="first_name"], #FirstName',
+    lastName: 'input[name="last_name"], #LastName',
+    email: 'input[type="email"], #Email',
+    phone: 'input[type="tel"], #Phone',
+    dob: 'input[name="date_of_birth"], #DateOfBirth',
+    addressLine1: 'input[name="address"], #Address',
+    city: 'input[name="city"], #City',
+    province: 'select[name="province"], #Province',
+    postalCode: 'input[name="postal_code"], #PostalCode',
+    country: 'select[name="country"], #Country',
+    idNumber: 'input[name="passport_number"], #PassportNumber',
   },
 
   riskLevel: 'low',
@@ -112,9 +114,8 @@ const allianceFranaiseVancouver: PlatformAdapter = {
     'BC\'s primary exam center. High competition especially for spring/summer sessions. Release patterns are irregular — continuous monitoring is recommended.',
   lastVerified: '2026-04-01',
 
-  // Demo seed data for V1 — OPEN alert scenario
-  demoCurrentStatus: 'OPEN',
-  demoSeatsText: 'Seats available — register now',
+  // Real detection URL confirmed: https://www.alliancefrancaise.ca/en/language/exams/tcf-canada/
+  // Verified 2026-04-20: all current sessions SOLD OUT; Q3/Q4 2026 registration upcoming
 }
 
 export default allianceFranaiseVancouver

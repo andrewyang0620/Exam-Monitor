@@ -3,13 +3,12 @@
  *
  * Responsibilities:
  * - Message router between popup, options, content script
- * - Alarm-based mock monitoring loop (every 5 min in V1)
+ * - Alarm-based monitoring loop (every 5 min) — polls the real backend
  * - Chrome notification dispatch when a seat status change is detected
  * - Stateful runtime state management via chrome.storage.local
  *
- * Privacy: This worker never makes HTTP requests to exam portals directly.
- * In V1, monitoring is simulated (mock data). In V2+, a cloud monitoring
- * service sends push notifications; the worker only receives them.
+ * Privacy: This worker polls the backend's public /api/latest-event endpoint.
+ * No exam portal pages are fetched directly from the extension.
  */
 
 import type { ExtensionMessage, LatestAlert } from '../shared/types'
@@ -17,8 +16,13 @@ import { storage } from '../shared/storage'
 import { computeProfileCompletion } from '@tcf-tracker/utils'
 import type { LocalProfileTemplate } from '@tcf-tracker/types'
 
-const ALARM_NAME = 'esm-mock-check'
+const ALARM_NAME = 'esm-check'
 const CHECK_INTERVAL_MINUTES = 5
+
+// Base URL of the web app — keep in sync with your deployment
+const APP_BASE_URL = 'https://examseats.app'
+const AF_VANCOUVER_REGISTRATION_URL =
+  'https://www.alliancefrancaise.ca/products/ciep-tcf-canada-full-exam/'
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -38,7 +42,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   })
 })
 
-// ─── Alarm handler — mock monitoring ─────────────────────────────────────────
+// ─── Alarm handler — real backend polling ─────────────────────────────────────
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== ALARM_NAME) return
@@ -46,44 +50,76 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const now = new Date().toISOString()
   const profile = await storage.getProfile()
   const profilePct = profile ? computeProfileCompletion(profile) : 0
+  const currentState = await storage.getState()
 
-  // Mock: simulate an OPEN alert from AF Vancouver ~20% of the time in demo
-  const shouldAlert = Math.random() < 0.2
-  let latestAlert: LatestAlert | null = null
+  let latestAlert: LatestAlert | null = currentState.latestAlert ?? null
 
-  if (shouldAlert) {
-    const dismissed = await storage.getDismissedAlerts()
-    const mockAlertId = 'mock-af-vancouver-open'
+  try {
+    // Poll the public latest-event endpoint (no auth required)
+    const res = await fetch(`${APP_BASE_URL}/api/latest-event`, {
+      cache: 'no-store',
+    })
 
-    if (!dismissed.includes(mockAlertId)) {
-      latestAlert = {
-        id: mockAlertId,
-        platformId: 'af-vancouver',
-        platformName: 'Alliance Française Vancouver',
-        examType: 'TCF Canada',
-        city: 'Vancouver',
-        detectedAt: now,
-        officialUrl: 'https://www.afvancouver.com/test-tcf-canada',
+    if (res.ok) {
+      const json = await res.json() as {
+        event?: {
+          id: string
+          platform_id: string
+          exam_type: string
+          city: string
+          center_name: string
+          new_status: string
+          detected_at: string
+        } | null
+        observation?: {
+          seats_text: string | null
+        } | null
       }
 
-      // Send a Chrome notification
-      chrome.notifications.create('esm-alert-' + Date.now(), {
-        type: 'basic',
-        iconUrl: '../../../icons/icon-48.png',
-        title: '🟢 Exam seats available!',
-        message: `Alliance Française Vancouver — TCF Canada seats just opened.`,
-        priority: 2,
-      })
+      const event = json.event ?? null
+      const lastSeenId = latestAlert?.id ?? null
 
-      await storage.saveState({
-        lastCheckAt: now,
-        isMonitoring: true,
-        latestAlert,
-        profileCompletion: profilePct,
-        unreadCount: 1,
-      })
-      return
+      // Only alert if this is a new OPEN event we haven't seen yet
+      if (event && event.id !== lastSeenId && event.new_status === 'OPEN') {
+        const dismissed = await storage.getDismissedAlerts()
+        if (!dismissed.includes(event.id)) {
+          const officialUrl =
+            event.platform_id === 'af-vancouver'
+              ? AF_VANCOUVER_REGISTRATION_URL
+              : APP_BASE_URL + '/dashboard'
+
+          latestAlert = {
+            id: event.id,
+            platformId: event.platform_id,
+            platformName: event.center_name,
+            examType: event.exam_type as LatestAlert['examType'],
+            city: event.city,
+            detectedAt: event.detected_at,
+            officialUrl,
+          }
+
+          chrome.notifications.create('esm-alert-' + Date.now(), {
+            type: 'basic',
+            iconUrl: '../../../icons/icon-48.png',
+            title: '🟢 Exam seats available!',
+            message: `${event.center_name} — ${event.exam_type} seats just opened.`,
+            priority: 2,
+          })
+
+          await storage.saveState({
+            lastCheckAt: now,
+            isMonitoring: true,
+            latestAlert,
+            profileCompletion: profilePct,
+            unreadCount: (currentState.unreadCount ?? 0) + 1,
+          })
+          return
+        }
+      }
     }
+  } catch (err) {
+    // Network error — keep existing state, log silently
+    console.error('[ESM background] poll failed', err)
   }
 
   await storage.saveState({

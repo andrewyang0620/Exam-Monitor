@@ -23,7 +23,7 @@ const navItems = [
     icon: LayoutDashboard,
   },
   {
-    label: 'My Exams',
+    label: 'Watchlist',
     href: '/dashboard/rules',
     icon: BookOpen,
   },
