@@ -2,18 +2,18 @@
 
 import { formatTimeAgo } from '@tcf-tracker/utils'
 import { RefreshCw, Bell } from 'lucide-react'
-import { MOCK_STATS, getUnreadCount } from '@/lib/mock-data'
+import { getUnreadCount } from '@/lib/mock-data'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 
 interface DashboardHeaderProps {
   title: string
   subtitle?: string
+  lastCheckAt?: string | null
 }
 
-export function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
+export function DashboardHeader({ title, subtitle, lastCheckAt }: DashboardHeaderProps) {
   const unreadCount = getUnreadCount()
-  const lastCheck = MOCK_STATS.lastCheckAt
 
   return (
     <header className="sticky top-0 z-20 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 px-6 py-4">
@@ -27,7 +27,7 @@ export function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs text-slate-500">
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>Last check {lastCheck ? formatTimeAgo(lastCheck) : '—'}</span>
+            <span>Last check {lastCheckAt ? formatTimeAgo(lastCheckAt) : '—'}</span>
           </div>
           <Link href="/dashboard/notifications">
             <Button variant="ghost" size="icon" className="relative">

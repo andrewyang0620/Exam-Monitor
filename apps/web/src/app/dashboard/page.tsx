@@ -207,7 +207,8 @@ export default function DashboardPage() {
 
     // Computed stats
     const openAlerts = mappedEvents.filter((e) => e.newStatus === 'OPEN').length
-    const lastCheck = (dbObs ?? [])[0]?.observed_at ?? new Date().toISOString()
+    const afVancouver = (dbPlatformRows ?? []).find((p) => p.id === 'af-vancouver') as DbPlatform | undefined
+    const lastCheck = afVancouver?.last_success_at ?? (dbObs ?? [])[0]?.observed_at ?? new Date().toISOString()
     const uniqueCities = [...new Set((dbSubs ?? []).map((r) => r.city as string).filter(Boolean))]
     const dbPlatIds = new Set((dbPlatformRows ?? []).map((p) => p.id as string))
     const mockOnlyCount = MOCK_PLATFORMS.filter((p) => !dbPlatIds.has(p.id)).length
@@ -279,6 +280,7 @@ export default function DashboardPage() {
       <DashboardHeader
         title="Dashboard"
         subtitle={`Welcome back, ${displayName}`}
+        lastCheckAt={stats.lastCheckAt}
       />
 
       <main className="flex-1 p-6 space-y-6">

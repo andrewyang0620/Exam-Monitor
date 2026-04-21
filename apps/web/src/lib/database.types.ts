@@ -238,6 +238,11 @@ export interface Database {
           is_active: boolean
           created_at: string
           updated_at: string
+          last_success_at: string | null
+          last_failure_at: string | null
+          consecutive_failures: number
+          last_error_message: string | null
+          latest_observed_at: string | null
         }
         Insert: {
           id: string
@@ -258,6 +263,11 @@ export interface Database {
           is_active?: boolean
           created_at?: string
           updated_at?: string
+          last_success_at?: string | null
+          last_failure_at?: string | null
+          consecutive_failures?: number
+          last_error_message?: string | null
+          latest_observed_at?: string | null
         }
         Update: {
           display_name?: string
@@ -265,6 +275,11 @@ export interface Database {
           last_health_check?: string | null
           is_active?: boolean
           updated_at?: string
+          last_success_at?: string | null
+          last_failure_at?: string | null
+          consecutive_failures?: number
+          last_error_message?: string | null
+          latest_observed_at?: string | null
         }
         Relationships: []
       }
