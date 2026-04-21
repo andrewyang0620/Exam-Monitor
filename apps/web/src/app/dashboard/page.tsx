@@ -162,7 +162,8 @@ export default function DashboardPage() {
   useEffect(() => {
     if (isDemoMode || !supabase) return
     loadDashboard()
-    // Re-fetch dashboard data every 60 s so lastCheckAt and observations stay fresh
+    // Re-fetch every 60 s so UI stays reasonably fresh.
+    // In dev, monitor completion also triggers an immediate reload (see below).
     const refreshTimer = setInterval(() => loadDashboard(), 60_000)
     return () => clearInterval(refreshTimer)
   }, [])
@@ -179,7 +180,9 @@ export default function DashboardPage() {
       fetch('/api/monitor', {
         method: 'POST',
         headers: { 'x-monitor-secret': secret },
-      }).catch(() => {/* silent */})
+      })
+        .then(() => loadDashboard()) // refresh UI immediately after monitor completes
+        .catch(() => {/* silent */})
     const monitorTimer = setInterval(runMonitor, 5 * 60_000)
     return () => clearInterval(monitorTimer)
   }, [])
