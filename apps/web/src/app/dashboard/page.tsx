@@ -139,6 +139,25 @@ export default function DashboardPage() {
   useEffect(() => {
     if (isDemoMode || !supabase) return
     loadDashboard()
+    // Re-fetch dashboard data every 60 s so lastCheckAt and observations stay fresh
+    const refreshTimer = setInterval(() => loadDashboard(), 60_000)
+    return () => clearInterval(refreshTimer)
+  }, [])
+
+  // In local dev, auto-trigger the monitor pipeline every 5 min
+  // (Vercel Cron handles this in production)
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development' || isDemoMode) return
+    const secret = process.env.NEXT_PUBLIC_DEV_MONITOR_SECRET
+    if (!secret) return
+    const runMonitor = () =>
+      fetch('/api/monitor', {
+        method: 'POST',
+        headers: { 'x-monitor-secret': secret },
+      }).catch(() => {/* silent */})
+    runMonitor() // run once immediately on mount
+    const monitorTimer = setInterval(runMonitor, 5 * 60_000)
+    return () => clearInterval(monitorTimer)
   }, [])
 
   async function loadDashboard() {
