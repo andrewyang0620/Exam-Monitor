@@ -46,13 +46,22 @@ function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
         autofill: mock?.autofill ?? { supported: r.autofill_supported, level: 'full' as const, fieldsCount: 0 },
         healthStatus: r.health_status as Platform['healthStatus'],
         lastHealthCheck: r.last_health_check ?? undefined,
+        lastSuccessAt: r.last_success_at ?? undefined,
         riskLevel: mock?.riskLevel ?? 'low',
         fixedReleaseWindows: mock?.fixedReleaseWindows,
         notes: mock?.notes,
       } satisfies Platform
     }),
-    ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
+    ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)).map((p) => ({ ...p, isPreview: true })),
   ]
+}
+
+function normalizeStatus(s: string): SeatObservation['availabilityStatus'] {
+  if (s === 'SOLD_OUT' || s === 'EXPECTED') return 'NOT_OPEN'
+  if (s === 'OPEN' || s === 'NOT_OPEN' || s === 'MONITORING' || s === 'UNKNOWN') {
+    return s as SeatObservation['availabilityStatus']
+  }
+  return 'UNKNOWN'
 }
 
 function toObservation(o: {
@@ -70,7 +79,7 @@ function toObservation(o: {
     examType: o.exam_type as SeatObservation['examType'],
     sessionLabel: o.session_label ?? undefined,
     sessionDate: o.session_date ?? undefined,
-    availabilityStatus: o.availability_status as SeatObservation['availabilityStatus'],
+    availabilityStatus: normalizeStatus(o.availability_status),
     seatsText: o.seats_text ?? undefined,
     observedAt: o.observed_at,
     sourceHash: o.source_hash ?? '',
@@ -82,7 +91,7 @@ function toObservation(o: {
 
 function StatusBadge({ status }: { status: SeatObservation['availabilityStatus'] }) {
   const variantMap: Record<string, BadgeProps['variant']> = {
-    OPEN: 'open', SOLD_OUT: 'sold', EXPECTED: 'expected', MONITORING: 'monitoring', UNKNOWN: 'unknown',
+    OPEN: 'open', NOT_OPEN: 'not-open', MONITORING: 'monitoring', UNKNOWN: 'unknown',
   }
   return (
     <Badge variant={variantMap[status] ?? 'unknown'}>

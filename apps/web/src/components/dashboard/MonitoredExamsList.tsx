@@ -29,54 +29,58 @@ function StatusBadge({ status }: { status: SeatObservation['availabilityStatus']
 // ─── Countdown hook ───────────────────────────────────────────────────────────
 //
 // Timer model:
-//   nextCheckAt = obs.observedAt (real backend check timestamp) + pollingIntervalSec
-//   remaining   = nextCheckAt - Date.now()   (recomputed every tick — drift-safe)
+//   anchor      = platform.lastSuccessAt (real backend check time) ?? obs.observedAt (content-change time)
+//   nextCheckAt = anchor + pollingIntervalSec
+//   remaining   = nextCheckAt - Date.now()
 //
-// The interval is NOT restarted when observations refresh (obsRef handles that).
-// Each 1-second tick reads the latest obs from obsRef and recomputes from wall clock,
-// so the timer auto-corrects after tab throttling, backgrounding, or re-mount.
+// Display is minute-based ("~X min"), not mm:ss.
+// The system is not precise enough to warrant second-level display:
+//  - loadDashboard polls every 60s, so lastSuccessAt can lag by up to 60s
+//  - Vercel Cron has its own scheduling jitter
+//
+// Interval is 60s (not 1s) — no need to re-render every second for minute-level display.
+// obsRef/platformsRef lets the interval read fresh data without restarting.
 
 function useCountdowns(
   platforms: Platform[],
   observations: SeatObservation[],
 ): Map<string, string> {
   const [countdowns, setCountdowns] = useState<Map<string, string>>(new Map())
-  // Use ref so the stable interval always reads the latest observations
-  // without needing to recreate the interval on every 60-second data refresh.
   const obsRef = useRef(observations)
   obsRef.current = observations
+  const platformsRef = useRef(platforms)
+  platformsRef.current = platforms
 
   useEffect(() => {
     function compute() {
       const map = new Map<string, string>()
       const now = Date.now()
-      for (const platform of platforms) {
+      for (const platform of platformsRef.current) {
         const obs = obsRef.current.find((o) => o.platformId === platform.id)
         const intervalSec = platform.monitoring.pollingIntervalSec ?? 300
-        if (!obs) {
-          // No observation yet — show full interval as initial state
-          const mm = String(Math.floor(intervalSec / 60)).padStart(2, '0')
-          map.set(platform.id, `${mm}:00`)
+        // Prefer last_success_at (real check time) over obs.observedAt (last content-change time)
+        const anchor = platform.lastSuccessAt ?? obs?.observedAt
+        if (!anchor) {
+          // No backend data yet
+          map.set(platform.id, `~${Math.round(intervalSec / 60)} min`)
           continue
         }
-        const nextCheckAt = new Date(obs.observedAt).getTime() + intervalSec * 1000
-        const remainingSec = Math.floor((nextCheckAt - now) / 1000)
-        if (remainingSec <= 0) {
+        const nextCheckAt = new Date(anchor).getTime() + intervalSec * 1000
+        const remainingMs = nextCheckAt - now
+        if (remainingMs <= 0) {
           map.set(platform.id, 'checking')
         } else {
-          const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0')
-          const ss = String(remainingSec % 60).padStart(2, '0')
-          map.set(platform.id, `${mm}:${ss}`)
+          const mins = Math.ceil(remainingMs / 60_000)
+          map.set(platform.id, `~${mins} min`)
         }
       }
       setCountdowns(new Map(map))
     }
 
     compute()
-    const timer = setInterval(compute, 1000)
+    // Re-compute every 60s — minute-level display doesn't need per-second updates
+    const timer = setInterval(compute, 60_000)
     return () => clearInterval(timer)
-    // Only re-create interval when platform list changes (not on every obs refresh).
-    // obsRef.current always reflects the latest observations inside the interval.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platforms])
 
@@ -195,8 +199,14 @@ export function MonitoredExamsList({
                   <span className="text-sm font-semibold text-slate-900 truncate">
                     {platform.displayName}
                   </span>
-                  {obs && <StatusBadge status={obs.availabilityStatus} />}
-                  {platform.autofill.supported && (
+                  {platform.isPreview ? (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                      Coming Soon
+                    </span>
+                  ) : (
+                    obs && <StatusBadge status={obs.availabilityStatus} />
+                  )}
+                  {platform.autofill.supported && !platform.isPreview && (
                     <span className="hidden sm:flex items-center gap-0.5 text-[10px] text-slate-400">
                       <MousePointerClick className="w-3 h-3" />
                       Autofill
@@ -213,16 +223,16 @@ export function MonitoredExamsList({
                     <MapPin className="w-3 h-3" />
                     {platform.city}
                   </span>
-                  {obs && (
+                  {!platform.isPreview && (platform.lastSuccessAt ?? obs?.observedAt) && (
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      {formatTimeAgo(obs.observedAt)}
+                      {formatTimeAgo(platform.lastSuccessAt ?? obs!.observedAt)}
                     </span>
                   )}
                 </div>
 
-                {/* Row 3: secondary info for NOT_OPEN */}
-                {obs?.availabilityStatus === 'NOT_OPEN' && (nextWindowText || upcomingSessionLabels) && (
+                {/* Row 3: secondary info for NOT_OPEN — only for real platforms with real parser output */}
+                {!platform.isPreview && obs?.availabilityStatus === 'NOT_OPEN' && (nextWindowText || upcomingSessionLabels) && (
                   <div className="mt-1.5 space-y-0.5">
                     {nextWindowText && (
                       <p className="text-xs text-slate-500">
@@ -238,14 +248,14 @@ export function MonitoredExamsList({
                   </div>
                 )}
 
-                {/* Row 4: countdown */}
-                {countdown && (
+                {/* Row 4: next check timing — only for real (non-preview) platforms */}
+                {!platform.isPreview && countdown && (
                   <div className="flex items-center gap-1 mt-1.5 text-[11px] text-slate-400">
                     <Timer className="w-3 h-3" />
                     {countdown === 'checking' ? (
                       <span className="italic">Checking…</span>
                     ) : (
-                      <span>Next check in <span className="font-mono font-medium text-slate-500">{countdown}</span></span>
+                      <span>Next check in <span className="font-medium text-slate-500">{countdown}</span></span>
                     )}
                   </div>
                 )}
@@ -253,7 +263,7 @@ export function MonitoredExamsList({
 
               {/* Actions */}
               <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-                {isOpen && (
+                {isOpen && !platform.isPreview && (
                   <Button size="sm" variant="success" className="gap-1.5 text-xs" asChild>
                     <a href={officialUrl} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="w-3 h-3" />
@@ -261,6 +271,7 @@ export function MonitoredExamsList({
                     </a>
                   </Button>
                 )}
+                {!platform.isPreview && (
                 <Button
                   size="sm"
                   variant={isFollowed ? 'outline' : 'ghost'}
@@ -287,6 +298,7 @@ export function MonitoredExamsList({
                     </>
                   )}
                 </Button>
+                )}
               </div>
             </div>
           )

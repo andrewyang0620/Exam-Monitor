@@ -2,7 +2,6 @@
 
 import { formatTimeAgo } from '@tcf-tracker/utils'
 import { RefreshCw, Bell } from 'lucide-react'
-import { getUnreadCount } from '@/lib/mock-data'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 
@@ -10,10 +9,10 @@ interface DashboardHeaderProps {
   title: string
   subtitle?: string
   lastCheckAt?: string | null
+  unreadCount?: number
 }
 
-export function DashboardHeader({ title, subtitle, lastCheckAt }: DashboardHeaderProps) {
-  const unreadCount = getUnreadCount()
+export function DashboardHeader({ title, subtitle, lastCheckAt, unreadCount = 0 }: DashboardHeaderProps) {
 
   return (
     <header className="sticky top-0 z-20 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 px-6 py-4">

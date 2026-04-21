@@ -66,6 +66,11 @@ export function SupportedPlatformsSection({ platforms, limit = 4 }: SupportedPla
                       {platform.shortName}
                     </span>
                     <span className="text-xs text-slate-400">{platform.province}</span>
+                    {platform.isPreview && (
+                      <span className="text-[9px] font-medium px-1 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">
+                        Soon
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {platform.examTypesSupported.slice(0, 2).map((exam) => (

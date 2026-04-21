@@ -54,12 +54,13 @@ function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
         autofill: mock?.autofill ?? { supported: r.autofill_supported, level: 'full' as const, fieldsCount: 0 },
         healthStatus: r.health_status as Platform['healthStatus'],
         lastHealthCheck: r.last_health_check ?? undefined,
+        lastSuccessAt: r.last_success_at ?? undefined,
         riskLevel: mock?.riskLevel ?? 'low',
         fixedReleaseWindows: mock?.fixedReleaseWindows,
         notes: mock?.notes,
       } satisfies Platform
     }),
-    ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
+    ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)).map((p) => ({ ...p, isPreview: true })),
   ]
 }
 
@@ -163,29 +164,15 @@ export default function DashboardPage() {
     if (isDemoMode || !supabase) return
     loadDashboard()
     // Re-fetch every 60 s so UI stays reasonably fresh.
-    // In dev, monitor completion also triggers an immediate reload (see below).
     const refreshTimer = setInterval(() => loadDashboard(), 60_000)
     return () => clearInterval(refreshTimer)
   }, [])
 
-  // In local dev, auto-trigger the monitor pipeline every 5 min
-  // (Vercel Cron handles this in production)
-  // NOTE: do NOT run immediately on mount — that would overwrite last_success_at
-  // to "now" on every page refresh, making "Last Check" always show "just now".
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'development' || isDemoMode) return
-    const secret = process.env.NEXT_PUBLIC_DEV_MONITOR_SECRET
-    if (!secret) return
-    const runMonitor = () =>
-      fetch('/api/monitor', {
-        method: 'POST',
-        headers: { 'x-monitor-secret': secret },
-      })
-        .then(() => loadDashboard()) // refresh UI immediately after monitor completes
-        .catch(() => {/* silent */})
-    const monitorTimer = setInterval(runMonitor, 5 * 60_000)
-    return () => clearInterval(monitorTimer)
-  }, [])
+  // Dev auto-monitor via page useEffect was removed — it was page-lifecycle-bound
+  // (setInterval resets on every React mount, so it almost never fired in practice).
+  // To trigger a monitor run in development, run:
+  //   pnpm monitor   (or manually POST /api/monitor with x-monitor-secret header)
+  // Production monitoring is handled by Vercel Cron (vercel.json: */5 * * * *)
 
   async function loadDashboard() {
     const {
@@ -253,8 +240,14 @@ export default function DashboardPage() {
 
     // Computed stats
     const openAlerts = mappedEvents.filter((e) => e.newStatus === 'OPEN').length
-    const afVancouver = (dbPlatformRows ?? []).find((p) => p.id === 'af-vancouver') as DbPlatform | undefined
-    const lastCheck = afVancouver?.last_success_at ?? (dbObs ?? [])[0]?.observed_at ?? undefined
+    // Use the most recent successful monitor run across all DB platforms as global Last Check.
+    // Falls back to the most recent seat_observation.observed_at if no platform has been checked yet.
+    const allSuccessTimestamps = (dbPlatformRows ?? [])
+      .map((p) => p.last_success_at)
+      .filter(Boolean) as string[]
+    const lastCheck = allSuccessTimestamps.length > 0
+      ? allSuccessTimestamps.sort().at(-1)
+      : (dbObs ?? [])[0]?.observed_at ?? undefined
     const uniqueCities = [...new Set((dbSubs ?? []).map((r) => r.city as string).filter(Boolean))]
     const dbPlatIds = new Set((dbPlatformRows ?? []).map((p) => p.id as string))
     const mockOnlyCount = MOCK_PLATFORMS.filter((p) => !dbPlatIds.has(p.id)).length
@@ -346,6 +339,7 @@ export default function DashboardPage() {
         title="Dashboard"
         subtitle={displayName ? `Welcome back, ${displayName}` : 'Dashboard'}
         lastCheckAt={stats.lastCheckAt}
+        unreadCount={notifications.filter((n) => !n.isViewed).length}
       />
 
       <main className="flex-1 p-6 space-y-6">

@@ -131,9 +131,21 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     // Skip if hash identical (page hasn't changed at all)
+    // last_success_at = now (check ran successfully)
+    // latest_observed_at is NOT updated — it tracks the last content-change time, not check time
     if (lastObs?.source_hash === parsed.sourceHash) {
       console.log('[monitor] hash unchanged — skipping DB write')
-      await recordSuccess(db, now, now)
+      await db
+        .from('platforms')
+        .update({
+          last_success_at: now,
+          consecutive_failures: 0,
+          last_error_message: null,
+          health_status: 'operational',
+          updated_at: now,
+          // latest_observed_at intentionally NOT updated — it reflects last content-change, not last check
+        })
+        .eq('id', 'af-vancouver')
       return NextResponse.json({
         changed: false,
         status: parsed.availabilityStatus,
@@ -171,7 +183,7 @@ export async function POST(req: NextRequest) {
       throw new Error(`observation insert failed: ${obsErr?.message}`)
     }
 
-    // Always record success + latest observation time
+    // Record success: last_success_at = now, latest_observed_at = now (content actually changed)
     await recordSuccess(db, now, now)
 
     // 4. No status change — done

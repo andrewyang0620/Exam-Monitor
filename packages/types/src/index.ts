@@ -211,6 +211,8 @@ export interface Platform {
   autofill: PlatformAutofillCapability
   healthStatus: PlatformHealthStatus
   lastHealthCheck?: string
+  lastSuccessAt?: string          // When the most recent successful auto-monitor run completed
+  isPreview?: boolean             // True for platforms not yet backed by a real parser/pipeline
   fixedReleaseWindows?: ReleaseWindow[]
   riskLevel: RiskLevel
   notes?: string
