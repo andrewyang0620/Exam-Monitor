@@ -131,7 +131,7 @@ function toNotification(n: DbNotificationWithEvent): NotificationDelivery {
 const EMPTY_STATS: DashboardStats = {
   activeRulesCount: 0,
   openAlertsCount: 0,
-  lastCheckAt: new Date().toISOString(),
+  lastCheckAt: undefined,
   supportedPlatformsCount: 0,
   monitoredCitiesCount: 0,
   totalNotificationsSent: 0,
@@ -250,7 +250,7 @@ export default function DashboardPage() {
     // Computed stats
     const openAlerts = mappedEvents.filter((e) => e.newStatus === 'OPEN').length
     const afVancouver = (dbPlatformRows ?? []).find((p) => p.id === 'af-vancouver') as DbPlatform | undefined
-    const lastCheck = afVancouver?.last_success_at ?? (dbObs ?? [])[0]?.observed_at ?? new Date().toISOString()
+    const lastCheck = afVancouver?.last_success_at ?? (dbObs ?? [])[0]?.observed_at ?? undefined
     const uniqueCities = [...new Set((dbSubs ?? []).map((r) => r.city as string).filter(Boolean))]
     const dbPlatIds = new Set((dbPlatformRows ?? []).map((p) => p.id as string))
     const mockOnlyCount = MOCK_PLATFORMS.filter((p) => !dbPlatIds.has(p.id)).length
