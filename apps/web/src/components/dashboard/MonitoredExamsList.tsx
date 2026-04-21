@@ -27,31 +27,48 @@ function StatusBadge({ status }: { status: SeatObservation['availabilityStatus']
 }
 
 // ─── Countdown hook ───────────────────────────────────────────────────────────
+//
+// Timer model:
+//   nextCheckAt = obs.observedAt (real backend check timestamp) + pollingIntervalSec
+//   remaining   = nextCheckAt - Date.now()   (recomputed every tick — drift-safe)
+//
+// The interval is NOT restarted when observations refresh (obsRef handles that).
+// Each 1-second tick reads the latest obs from obsRef and recomputes from wall clock,
+// so the timer auto-corrects after tab throttling, backgrounding, or re-mount.
 
 function useCountdowns(
   platforms: Platform[],
   observations: SeatObservation[],
 ): Map<string, string> {
   const [countdowns, setCountdowns] = useState<Map<string, string>>(new Map())
+  // Use ref so the stable interval always reads the latest observations
+  // without needing to recreate the interval on every 60-second data refresh.
   const obsRef = useRef(observations)
   obsRef.current = observations
 
   useEffect(() => {
     function compute() {
       const map = new Map<string, string>()
+      const now = Date.now()
       for (const platform of platforms) {
         const obs = obsRef.current.find((o) => o.platformId === platform.id)
         const intervalSec = platform.monitoring.pollingIntervalSec ?? 300
         if (!obs) {
-          map.set(platform.id, `${String(Math.floor(intervalSec / 60)).padStart(2, '0')}:00`)
+          // No observation yet — show full interval as initial state
+          const mm = String(Math.floor(intervalSec / 60)).padStart(2, '0')
+          map.set(platform.id, `${mm}:00`)
           continue
         }
-        const lastChecked = new Date(obs.observedAt).getTime()
-        const nextCheck = lastChecked + intervalSec * 1000
-        const remaining = Math.max(0, Math.floor((nextCheck - Date.now()) / 1000))
-        const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
-        const ss = String(remaining % 60).padStart(2, '0')
-        map.set(platform.id, `${mm}:${ss}`)
+        const nextCheckAt = new Date(obs.observedAt).getTime() + intervalSec * 1000
+        const remainingSec = Math.floor((nextCheckAt - now) / 1000)
+        if (remainingSec <= 0) {
+          // Timer expired — backend check is overdue or we have stale mock data
+          map.set(platform.id, 'checking')
+        } else {
+          const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0')
+          const ss = String(remainingSec % 60).padStart(2, '0')
+          map.set(platform.id, `${mm}:${ss}`)
+        }
       }
       setCountdowns(new Map(map))
     }
@@ -59,7 +76,10 @@ function useCountdowns(
     compute()
     const timer = setInterval(compute, 1000)
     return () => clearInterval(timer)
-  }, [platforms, observations])
+    // Only re-create interval when platform list changes (not on every obs refresh).
+    // obsRef.current always reflects the latest observations inside the interval.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platforms])
 
   return countdowns
 }
@@ -223,7 +243,11 @@ export function MonitoredExamsList({
                 {countdown && (
                   <div className="flex items-center gap-1 mt-1.5 text-[11px] text-slate-400">
                     <Timer className="w-3 h-3" />
-                    <span>Next check in <span className="font-mono font-medium text-slate-500">{countdown}</span></span>
+                    {countdown === 'checking' ? (
+                      <span className="italic">Checking…</span>
+                    ) : (
+                      <span>Next check in <span className="font-mono font-medium text-slate-500">{countdown}</span></span>
+                    )}
                   </div>
                 )}
               </div>
