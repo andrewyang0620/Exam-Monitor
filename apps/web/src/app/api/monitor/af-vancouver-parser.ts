@@ -23,7 +23,7 @@ export const AF_VANCOUVER_PRODUCT_URL =
 export const AF_VANCOUVER_REGISTRATION_URL =
   'https://www.alliancefrancaise.ca/products/ciep-tcf-canada-full-exam/'
 
-export type AvailabilityStatus = 'OPEN' | 'SOLD_OUT' | 'EXPECTED' | 'MONITORING' | 'UNKNOWN'
+export type AvailabilityStatus = 'OPEN' | 'NOT_OPEN' | 'MONITORING' | 'UNKNOWN'
 
 export interface ParsedObservation {
   platformId: string
@@ -38,6 +38,10 @@ export interface ParsedObservation {
   sourceHash: string
   confidence: number
   detectedText: string
+  // Informational fields stored in metadata jsonb — not primary status
+  nextWindowText?: string         // e.g. "First week of June 2026"
+  upcomingSessionLabels?: string[] // e.g. ["3rd trimester of 2026"]
+  soldOutSessionLabels?: string[]  // e.g. ["April 2026", "June 2026"]
 }
 
 interface SessionBlock {
@@ -119,7 +123,15 @@ function parseProductPage(html: string): 'OUT_OF_STOCK' | 'AVAILABLE' | 'UNKNOWN
 function deriveStatus(
   sessions: SessionBlock[],
   productStatus: 'OUT_OF_STOCK' | 'AVAILABLE' | 'UNKNOWN',
-): { status: AvailabilityStatus; sessionLabel: string; confidence: number; seatsText: string } {
+): {
+  status: AvailabilityStatus
+  sessionLabel: string
+  confidence: number
+  seatsText: string
+  nextWindowText?: string
+  upcomingSessionLabels?: string[]
+  soldOutSessionLabels?: string[]
+} {
   if (sessions.length === 0) {
     // Couldn't parse sessions — fall back to product page only
     if (productStatus === 'AVAILABLE') {
@@ -132,8 +144,8 @@ function deriveStatus(
     }
     if (productStatus === 'OUT_OF_STOCK') {
       return {
-        status: 'SOLD_OUT',
-        sessionLabel: 'Unknown',
+        status: 'NOT_OPEN',
+        sessionLabel: 'Not currently open',
         confidence: 0.6,
         seatsText: 'Product page: Out of stock',
       }
@@ -151,7 +163,6 @@ function deriveStatus(
     return (
       t.includes('sold out') ||
       t.includes('complet') ||
-      // "SOLD" alone = first half of a split "SOLD / OUT" after stripTags
       /^sold(\s|$)/.test(t)
     )
   })
@@ -170,11 +181,10 @@ function deriveStatus(
     )
   })
 
-  // OPEN: at least one session with no "SOLD OUT" and no "Registration starts"
+  // OPEN: at least one session with no SOLD OUT / Registration starts
   if (openSessions.length > 0) {
     const labels = openSessions.map((s) => s.label).join(', ')
     const texts = openSessions.map((s) => `${s.label} — ${s.statusText}`).join('; ')
-    // Cross-validate: if product page also says available, high confidence
     const confidence = productStatus === 'AVAILABLE' ? 0.97 : 0.85
     return {
       status: 'OPEN',
@@ -184,51 +194,28 @@ function deriveStatus(
     }
   }
 
-  // SOLD_OUT: all parsed sessions say SOLD OUT
-  if (soldOut.length > 0 && openSessions.length === 0 && registrationSoon.length === 0) {
-    const labels = soldOut.map((s) => s.label).join(', ')
-    const texts = soldOut.map((s) => `${s.label} — SOLD OUT`).join('; ')
-    // High confidence when both sources agree
-    const confidence = productStatus === 'OUT_OF_STOCK' ? 0.95 : 0.88
-    return {
-      status: 'SOLD_OUT',
-      sessionLabel: labels,
-      confidence,
-      seatsText: texts,
-    }
-  }
+  // All non-open cases → NOT_OPEN
+  // Collect informational fields for secondary display
+  const soldOutLabels = soldOut.map((s) => s.label)
+  const upcomingLabels = registrationSoon.map((s) => s.label)
 
-  // EXPECTED: some sessions have "Registration starts" (upcoming but not yet open)
-  if (registrationSoon.length > 0) {
-    const labels = registrationSoon.map((s) => s.label).join(', ')
-    const texts = registrationSoon
-      .map((s) => `${s.label} — ${s.statusText}`)
-      .join('; ')
-    return {
-      status: 'EXPECTED',
-      sessionLabel: labels,
-      confidence: 0.85,
-      seatsText: texts,
-    }
-  }
+  // Best next window hint: first registrationSoon statusText
+  const nextWindowText = registrationSoon.length > 0
+    ? registrationSoon[0].statusText.replace(/^registration starts\s*:\s*/i, '').trim()
+    : undefined
 
-  // Mixed state: some sold out + some expected
-  if (soldOut.length > 0 || registrationSoon.length > 0) {
-    const allLabels = [...soldOut, ...registrationSoon].map((s) => s.label).join(', ')
-    const allTexts = sessions.map((s) => `${s.label} — ${s.statusText}`).join('; ')
-    return {
-      status: 'EXPECTED',
-      sessionLabel: allLabels,
-      confidence: 0.78,
-      seatsText: allTexts,
-    }
-  }
+  const confidence = productStatus === 'OUT_OF_STOCK' ? 0.93 : 0.85
 
   return {
-    status: 'MONITORING',
-    sessionLabel: 'Unknown',
-    confidence: 0.3,
-    seatsText: 'No session blocks identified',
+    status: 'NOT_OPEN',
+    sessionLabel: 'Not currently open',
+    confidence,
+    seatsText: soldOutLabels.length > 0
+      ? soldOutLabels.map((l) => `${l} — Sold out`).join('; ')
+      : upcomingLabels.map((l) => `${l} — Registration opens soon`).join('; '),
+    nextWindowText,
+    upcomingSessionLabels: upcomingLabels.length > 0 ? upcomingLabels : undefined,
+    soldOutSessionLabels: soldOutLabels.length > 0 ? soldOutLabels : undefined,
   }
 }
 
@@ -297,10 +284,15 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
   const productStatus = fetchedProduct ? parseProductPage(productHtml) : 'UNKNOWN'
 
   // Apply confidence penalty if one source failed
-  const { status, sessionLabel, confidence: rawConfidence, seatsText } = deriveStatus(
-    sessions,
-    productStatus,
-  )
+  const {
+    status,
+    sessionLabel,
+    confidence: rawConfidence,
+    seatsText,
+    nextWindowText,
+    upcomingSessionLabels,
+    soldOutSessionLabels,
+  } = deriveStatus(sessions, productStatus)
   const confidence = fetchedDetection && fetchedProduct ? rawConfidence : rawConfidence - 0.1
 
   // Hash only the sessions section text for change detection
@@ -320,5 +312,8 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
     sourceHash,
     confidence: Math.max(0, Math.min(1, confidence)),
     detectedText: sectionText.slice(0, 500),
+    nextWindowText,
+    upcomingSessionLabels,
+    soldOutSessionLabels,
   }
 }

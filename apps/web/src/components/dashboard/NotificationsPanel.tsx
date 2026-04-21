@@ -101,8 +101,8 @@ export function NotificationsPanel({ notifications }: NotificationsPanelProps) {
                   {event.examType} ·{' '}
                   {isOpen ? (
                     <span className="text-emerald-600 font-medium">Seats opened</span>
-                  ) : event.newStatus === 'SOLD_OUT' ? (
-                    <span className="text-red-500 font-medium">Sold out</span>
+                  ) : event.newStatus === 'NOT_OPEN' ? (
+                    <span className="text-slate-500 font-medium">Not open</span>
                   ) : (
                     <span className="font-medium">{event.newStatus}</span>
                   )}

@@ -95,6 +95,7 @@ export interface Database {
           source_hash: string | null
           confidence: number | null
           observed_at: string
+          metadata: Record<string, unknown> | null
         }
         Insert: {
           id?: string
@@ -111,6 +112,7 @@ export interface Database {
           source_hash?: string | null
           confidence?: number | null
           observed_at?: string
+          metadata?: Record<string, unknown> | null
         }
         Update: {
           seats_text?: string | null

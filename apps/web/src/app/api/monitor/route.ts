@@ -51,8 +51,8 @@ function deriveEventType(
   newStatus: string,
 ): string {
   if (newStatus === 'OPEN') return 'OPENED'
-  if (newStatus === 'SOLD_OUT') return 'SOLD_OUT'
-  if (newStatus === 'EXPECTED' && (!previousStatus || previousStatus === 'MONITORING')) {
+  if (newStatus === 'NOT_OPEN' && previousStatus === 'OPEN') return 'SOLD_OUT'
+  if (newStatus === 'NOT_OPEN' && (!previousStatus || previousStatus === 'MONITORING' || previousStatus === 'UNKNOWN')) {
     return 'DATE_ADDED'
   }
   return 'STATUS_CHANGED'
@@ -157,6 +157,12 @@ export async function POST(req: NextRequest) {
         source_hash: parsed.sourceHash,
         confidence: parsed.confidence,
         observed_at: now,
+        // Store informational fields in metadata jsonb (no schema change needed)
+        metadata: {
+          nextWindowText: parsed.nextWindowText ?? null,
+          upcomingSessionLabels: parsed.upcomingSessionLabels ?? null,
+          soldOutSessionLabels: parsed.soldOutSessionLabels ?? null,
+        },
       })
       .select('id')
       .single()

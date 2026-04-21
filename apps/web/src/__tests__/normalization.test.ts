@@ -59,31 +59,31 @@ describe('normalizeStatus', () => {
 
 describe('detectChange', () => {
   it('returns null for first observation (no previous)', () => {
-    expect(detectChange(null, makeObs('SOLD_OUT'))).toBeNull()
+    expect(detectChange(null, makeObs('NOT_OPEN'))).toBeNull()
   })
 
-  it('returns OPENED when SOLD_OUT → OPEN', () => {
-    expect(detectChange(makeObs('SOLD_OUT', 'h1'), makeObs('OPEN', 'h2'))).toBe('OPENED')
+  it('returns OPENED when NOT_OPEN → OPEN', () => {
+    expect(detectChange(makeObs('NOT_OPEN', 'h1'), makeObs('OPEN', 'h2'))).toBe('OPENED')
   })
 
   it('returns OPENED when UNKNOWN → OPEN', () => {
     expect(detectChange(makeObs('UNKNOWN', 'h1'), makeObs('OPEN', 'h2'))).toBe('OPENED')
   })
 
-  it('returns SOLD_OUT when OPEN → SOLD_OUT', () => {
-    expect(detectChange(makeObs('OPEN', 'h1'), makeObs('SOLD_OUT', 'h2'))).toBe('SOLD_OUT')
+  it('returns SOLD_OUT when OPEN → NOT_OPEN', () => {
+    expect(detectChange(makeObs('OPEN', 'h1'), makeObs('NOT_OPEN', 'h2'))).toBe('SOLD_OUT')
   })
 
-  it('returns DATE_ADDED when UNKNOWN → EXPECTED', () => {
-    expect(detectChange(makeObs('UNKNOWN', 'h1'), makeObs('EXPECTED', 'h2'))).toBe('DATE_ADDED')
+  it('returns DATE_ADDED when UNKNOWN → NOT_OPEN', () => {
+    expect(detectChange(makeObs('UNKNOWN', 'h1'), makeObs('NOT_OPEN', 'h2'))).toBe('DATE_ADDED')
   })
 
   it('returns STATUS_CHANGED for other transitions', () => {
-    expect(detectChange(makeObs('MONITORING', 'h1'), makeObs('EXPECTED', 'h2'))).toBe('STATUS_CHANGED')
+    expect(detectChange(makeObs('MONITORING', 'h1'), makeObs('NOT_OPEN', 'h2'))).toBe('STATUS_CHANGED')
   })
 
   it('returns null when status is unchanged', () => {
-    expect(detectChange(makeObs('SOLD_OUT', 'h1'), makeObs('SOLD_OUT', 'h2'))).toBeNull()
+    expect(detectChange(makeObs('NOT_OPEN', 'h1'), makeObs('NOT_OPEN', 'h2'))).toBeNull()
   })
 })
 

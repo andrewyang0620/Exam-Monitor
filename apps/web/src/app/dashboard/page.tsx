@@ -64,6 +64,7 @@ function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
 }
 
 function toObservation(o: DbObservation): SeatObservation {
+  const meta = (o.metadata ?? {}) as Record<string, unknown>
   return {
     id: o.id,
     platformId: o.platform_id,
@@ -78,6 +79,10 @@ function toObservation(o: DbObservation): SeatObservation {
     observedAt: o.observed_at,
     sourceHash: o.source_hash ?? '',
     confidence: o.confidence ?? 1,
+    metadata: meta,
+    nextWindowText: (meta.nextWindowText as string | undefined) ?? undefined,
+    upcomingSessionLabels: (meta.upcomingSessionLabels as string[] | undefined) ?? undefined,
+    soldOutSessionLabels: (meta.soldOutSessionLabels as string[] | undefined) ?? undefined,
   }
 }
 

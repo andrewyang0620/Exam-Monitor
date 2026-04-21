@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { ExternalLink, MapPin, Clock, BookmarkPlus, BookmarkCheck, MousePointerClick } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { ExternalLink, MapPin, Clock, BookmarkPlus, BookmarkCheck, MousePointerClick, Timer } from 'lucide-react'
 import type { SeatObservation, Platform } from '@tcf-tracker/types'
 import { formatTimeAgo, getStatusLabel, getStatusDotColor } from '@tcf-tracker/utils'
 import { cn } from '@/lib/utils'
@@ -13,8 +13,7 @@ import type { BadgeProps } from '@/components/ui/badge'
 function StatusBadge({ status }: { status: SeatObservation['availabilityStatus'] }) {
   const variantMap: Record<string, BadgeProps['variant']> = {
     OPEN: 'open',
-    SOLD_OUT: 'sold',
-    EXPECTED: 'expected',
+    NOT_OPEN: 'not-open',
     MONITORING: 'monitoring',
     UNKNOWN: 'unknown',
   }
@@ -26,6 +25,46 @@ function StatusBadge({ status }: { status: SeatObservation['availabilityStatus']
     </Badge>
   )
 }
+
+// ─── Countdown hook ───────────────────────────────────────────────────────────
+
+function useCountdowns(
+  platforms: Platform[],
+  observations: SeatObservation[],
+): Map<string, string> {
+  const [countdowns, setCountdowns] = useState<Map<string, string>>(new Map())
+  const obsRef = useRef(observations)
+  obsRef.current = observations
+
+  useEffect(() => {
+    function compute() {
+      const map = new Map<string, string>()
+      for (const platform of platforms) {
+        const obs = obsRef.current.find((o) => o.platformId === platform.id)
+        const intervalSec = platform.monitoring.pollingIntervalSec ?? 300
+        if (!obs) {
+          map.set(platform.id, `${String(Math.floor(intervalSec / 60)).padStart(2, '0')}:00`)
+          continue
+        }
+        const lastChecked = new Date(obs.observedAt).getTime()
+        const nextCheck = lastChecked + intervalSec * 1000
+        const remaining = Math.max(0, Math.floor((nextCheck - Date.now()) / 1000))
+        const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
+        const ss = String(remaining % 60).padStart(2, '0')
+        map.set(platform.id, `${mm}:${ss}`)
+      }
+      setCountdowns(new Map(map))
+    }
+
+    compute()
+    const timer = setInterval(compute, 1000)
+    return () => clearInterval(timer)
+  }, [platforms, observations])
+
+  return countdowns
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 interface MonitoredExamsListProps {
   platforms: Platform[]
@@ -44,6 +83,7 @@ export function MonitoredExamsList({
 }: MonitoredExamsListProps) {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const obsMap = new Map(observations.map((o) => [o.platformId, o]))
+  const countdowns = useCountdowns(platforms, observations)
 
   async function handleToggle(platform: Platform) {
     setPendingId(platform.id)
@@ -90,24 +130,34 @@ export function MonitoredExamsList({
           const isOpen = obs?.availabilityStatus === 'OPEN'
           const isFollowed = followedIds.has(platform.id)
           const isPending = pendingId === platform.id
+          const countdown = countdowns.get(platform.id)
 
           const officialUrl =
             platform.id === 'af-vancouver'
               ? 'https://www.alliancefrancaise.ca/products/categories/exams-and-tests/tcf-canada/'
               : platform.entryUrl
 
+          // Pull informational fields from metadata
+          const meta = obs?.metadata as Record<string, unknown> | undefined
+          const nextWindowText =
+            obs?.nextWindowText ??
+            (meta?.nextWindowText as string | undefined)
+          const upcomingSessionLabels =
+            obs?.upcomingSessionLabels ??
+            (meta?.upcomingSessionLabels as string[] | undefined)
+
           return (
             <div
               key={platform.id}
               className={cn(
-                'px-6 py-4 flex items-center gap-4 transition-colors',
+                'px-6 py-4 flex items-start gap-4 transition-colors',
                 isOpen ? 'bg-emerald-50/40' : 'hover:bg-slate-50/60'
               )}
             >
-              {/* Status indicator */}
+              {/* Status indicator dot */}
               <div
                 className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
+                  'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5',
                   isOpen ? 'bg-emerald-100' : 'bg-slate-100'
                 )}
               >
@@ -121,6 +171,7 @@ export function MonitoredExamsList({
 
               {/* Info */}
               <div className="flex-1 min-w-0">
+                {/* Row 1: name + badge */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-semibold text-slate-900 truncate">
                     {platform.displayName}
@@ -133,6 +184,8 @@ export function MonitoredExamsList({
                     </span>
                   )}
                 </div>
+
+                {/* Row 2: exam type + city + last checked */}
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                   <span className="font-medium text-slate-600">
                     {platform.examTypesSupported.slice(0, 2).join(', ')}
@@ -148,13 +201,35 @@ export function MonitoredExamsList({
                     </span>
                   )}
                 </div>
-                {obs?.seatsText && (
-                  <p className="text-xs text-slate-400 mt-1 truncate">{obs.seatsText}</p>
+
+                {/* Row 3: secondary info for NOT_OPEN */}
+                {obs?.availabilityStatus === 'NOT_OPEN' && (nextWindowText || upcomingSessionLabels) && (
+                  <div className="mt-1.5 space-y-0.5">
+                    {nextWindowText && (
+                      <p className="text-xs text-slate-500">
+                        <span className="text-slate-400">Next likely opening:</span>{' '}
+                        <span className="text-slate-600">{nextWindowText}</span>
+                      </p>
+                    )}
+                    {upcomingSessionLabels && upcomingSessionLabels.length > 0 && (
+                      <p className="text-xs text-slate-400">
+                        Upcoming: {upcomingSessionLabels.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Row 4: countdown */}
+                {countdown && (
+                  <div className="flex items-center gap-1 mt-1.5 text-[11px] text-slate-400">
+                    <Timer className="w-3 h-3" />
+                    <span>Next check in <span className="font-mono font-medium text-slate-500">{countdown}</span></span>
+                  </div>
                 )}
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
                 {isOpen && (
                   <Button size="sm" variant="success" className="gap-1.5 text-xs" asChild>
                     <a href={officialUrl} target="_blank" rel="noopener noreferrer">

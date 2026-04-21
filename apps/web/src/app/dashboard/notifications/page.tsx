@@ -59,11 +59,11 @@ function NotificationRow({
       <div className="flex-shrink-0 mt-0.5">
         <div className={cn(
           'w-9 h-9 rounded-xl flex items-center justify-center',
-          isOpen ? 'bg-emerald-50' : event.newStatus === 'SOLD_OUT' ? 'bg-red-50' : 'bg-slate-100'
+          isOpen ? 'bg-emerald-50' : event.newStatus === 'NOT_OPEN' ? 'bg-slate-100' : 'bg-slate-100'
         )}>
           <ChannelIcon className={cn(
             'w-4 h-4',
-            isOpen ? 'text-emerald-600' : event.newStatus === 'SOLD_OUT' ? 'text-red-500' : 'text-slate-500'
+            isOpen ? 'text-emerald-600' : event.newStatus === 'NOT_OPEN' ? 'text-slate-500' : 'text-slate-500'
           )} />
         </div>
       </div>
@@ -87,7 +87,7 @@ function NotificationRow({
               <span className="text-slate-300">·</span>
               <span className={cn(
                 'text-xs font-medium',
-                isOpen ? 'text-emerald-600' : event.newStatus === 'SOLD_OUT' ? 'text-red-500' : 'text-slate-600'
+                isOpen ? 'text-emerald-600' : event.newStatus === 'NOT_OPEN' ? 'text-slate-600' : 'text-slate-600'
               )}>
                 {EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}
               </span>
