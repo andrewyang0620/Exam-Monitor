@@ -13,7 +13,8 @@ import {
 } from 'lucide-react'
 import type { Platform } from '@tcf-tracker/types'
 import { MOCK_PLATFORMS } from '@/lib/mock-data'
-import { supabase, isDemoMode } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import type { DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -211,31 +212,73 @@ function PlatformCard({ platform }: { platform: Platform }) {
   )
 }
 
+// Map a Supabase platforms row into the Platform shape the UI expects.
+// Fields not stored in DB (fixedReleaseWindows, notes, autofill details)
+// fall back to MOCK_PLATFORMS data for the same platform id.
+function dbPlatformToPlatform(row: DbPlatform): Platform {
+  const mockFallback = MOCK_PLATFORMS.find((p) => p.id === row.id)
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    shortName: mockFallback?.shortName ?? row.display_name,
+    city: row.city,
+    province: row.province,
+    country: row.country,
+    examTypesSupported: row.exam_types_supported as Platform['examTypesSupported'],
+    entryUrl: row.entry_url,
+    monitoring: {
+      level: row.monitoring_level as Platform['monitoring']['level'],
+      detectionMode: row.detection_mode as Platform['monitoring']['detectionMode'],
+      requiresAuth: false,
+      pollingIntervalSec: row.polling_interval_s,
+    },
+    autofill: mockFallback?.autofill ?? {
+      supported: row.autofill_supported,
+      level: 'full',
+      fieldsCount: 0,
+    },
+    healthStatus: row.health_status as Platform['healthStatus'],
+    lastHealthCheck: row.last_health_check ?? mockFallback?.lastHealthCheck,
+    fixedReleaseWindows: mockFallback?.fixedReleaseWindows,
+    riskLevel: mockFallback?.riskLevel ?? 'low',
+    notes: mockFallback?.notes,
+  }
+}
+
 export default function PlatformsPage() {
   const [search, setSearch] = useState('')
-  const [afLastCheck, setAfLastCheck] = useState<string | null>(null)
+  const [platforms, setPlatforms] = useState<Platform[]>(MOCK_PLATFORMS)
 
   useEffect(() => {
-    if (isDemoMode || !supabase) return
-    // Load last observation time for AF Vancouver to show accurate "last check"
-    supabase
-      .from('seat_observations')
-      .select('observed_at')
-      .eq('platform_id', 'af-vancouver')
-      .order('observed_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.observed_at) setAfLastCheck(data.observed_at)
-      })
+    loadPlatforms()
   }, [])
 
-  // Inject real last-check time for AF Vancouver
-  const platforms = MOCK_PLATFORMS.map((p) =>
-    p.id === 'af-vancouver' && afLastCheck
-      ? { ...p, lastHealthCheck: afLastCheck }
-      : p,
-  )
+  async function loadPlatforms() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('platforms')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_name')
+
+    if (error || !data || data.length === 0) return
+
+    // Replace any MOCK entry with the real DB row for that platform id.
+    // Platforms not yet in the DB remain as mock.
+    const dbIds = new Set(data.map((r) => r.id))
+    const merged: Platform[] = [
+      ...data.map(dbPlatformToPlatform),
+      ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
+    ]
+    // Stable sort: DB platforms first (they're real), then mocks
+    merged.sort((a, b) => {
+      const aIsDb = dbIds.has(a.id) ? 0 : 1
+      const bIsDb = dbIds.has(b.id) ? 0 : 1
+      return aIsDb - bIsDb || a.displayName.localeCompare(b.displayName)
+    })
+    setPlatforms(merged)
+  }
 
   const filtered = platforms.filter(
     (p) =>

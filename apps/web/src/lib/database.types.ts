@@ -217,6 +217,100 @@ export interface Database {
           }
         ]
       }
+
+      platforms: {
+        Row: {
+          id: string
+          display_name: string
+          city: string
+          province: string
+          country: string
+          exam_types_supported: string[]
+          entry_url: string
+          detection_url: string
+          registration_url: string | null
+          health_status: string
+          monitoring_level: string
+          detection_mode: string
+          autofill_supported: boolean
+          polling_interval_s: number
+          last_health_check: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          display_name: string
+          city: string
+          province: string
+          country?: string
+          exam_types_supported?: string[]
+          entry_url: string
+          detection_url: string
+          registration_url?: string | null
+          health_status?: string
+          monitoring_level?: string
+          detection_mode?: string
+          autofill_supported?: boolean
+          polling_interval_s?: number
+          last_health_check?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          display_name?: string
+          health_status?: string
+          last_health_check?: string | null
+          is_active?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+
+      user_preferences: {
+        Row: {
+          user_id: string
+          notify_browser: boolean
+          notify_email: boolean
+          notify_sms: boolean
+          cooldown_minutes: number
+          timezone: string
+          language: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          notify_browser?: boolean
+          notify_email?: boolean
+          notify_sms?: boolean
+          cooldown_minutes?: number
+          timezone?: string
+          language?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          notify_browser?: boolean
+          notify_email?: boolean
+          notify_sms?: boolean
+          cooldown_minutes?: number
+          timezone?: string
+          language?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'user_preferences_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: true
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -239,6 +333,8 @@ export type DbRule = Database['public']['Tables']['monitoring_rules']['Row']
 export type DbObservation = Database['public']['Tables']['seat_observations']['Row']
 export type DbChangeEvent = Database['public']['Tables']['change_events']['Row']
 export type DbNotification = Database['public']['Tables']['notification_deliveries']['Row']
+export type DbPlatform = Database['public']['Tables']['platforms']['Row']
+export type DbUserPreferences = Database['public']['Tables']['user_preferences']['Row']
 
 // Joined notification type (from .select('*, change_events(*)'))
 export interface DbNotificationWithEvent extends DbNotification {

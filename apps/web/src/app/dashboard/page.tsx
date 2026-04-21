@@ -183,11 +183,18 @@ export default function DashboardPage() {
     const uniqueCities = [
       ...new Set((dbRules ?? []).map((r) => r.city).filter(Boolean)),
     ]
+
+    // Platform count = real DB platforms + remaining mock platforms not yet in DB
+    const { data: dbPlatforms } = await supabase!.from('platforms').select('id').eq('is_active', true)
+    const dbPlatformIds = new Set((dbPlatforms ?? []).map((p) => p.id))
+    const mockOnlyCount = MOCK_PLATFORMS.filter((p) => !dbPlatformIds.has(p.id)).length
+    const totalPlatforms = (dbPlatforms?.length ?? 0) + mockOnlyCount
+
     setStats({
       activeRulesCount: activeRules,
       openAlertsCount: openAlerts,
       lastCheckAt: lastCheck,
-      supportedPlatformsCount: MOCK_PLATFORMS.length,
+      supportedPlatformsCount: totalPlatforms,
       monitoredCitiesCount: uniqueCities.length,
       totalNotificationsSent: (dbNotifs ?? []).length,
     })

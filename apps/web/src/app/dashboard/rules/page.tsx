@@ -19,6 +19,7 @@ import type { MonitoringRule, Platform, ExamType, SeatObservation } from '@tcf-t
 import { getStatusColor, getStatusDotColor, getStatusLabel, formatTimeAgo } from '@tcf-tracker/utils'
 import { MOCK_RULES, MOCK_PLATFORMS, MOCK_OBSERVATIONS } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
+import type { DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -413,13 +414,53 @@ function CreateRuleDialog({
 export default function RulesPage() {
   const [rules, setRules] = useState<MonitoringRule[]>(isDemoMode ? MOCK_RULES : [])
   const [observations, setObservations] = useState(isDemoMode ? MOCK_OBSERVATIONS : [])
+  const [platforms, setPlatforms] = useState<Platform[]>(MOCK_PLATFORMS)
   const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     if (isDemoMode || !supabase) return
     loadRules()
     loadObservations()
+    loadPlatforms()
   }, [])
+
+  async function loadPlatforms() {
+    const { data } = await supabase!
+      .from('platforms')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_name')
+    if (!data || data.length === 0) return
+    // Merge: DB rows replace matching mocks; remaining mocks kept
+    const dbIds = new Set(data.map((r: DbPlatform) => r.id))
+    const merged: Platform[] = [
+      ...data.map((r: DbPlatform) => {
+        const mock = MOCK_PLATFORMS.find((p) => p.id === r.id)
+        return {
+          id: r.id,
+          displayName: r.display_name,
+          shortName: mock?.shortName ?? r.display_name,
+          city: r.city,
+          province: r.province,
+          country: r.country,
+          examTypesSupported: r.exam_types_supported as Platform['examTypesSupported'],
+          entryUrl: r.entry_url,
+          monitoring: {
+            level: r.monitoring_level as Platform['monitoring']['level'],
+            detectionMode: r.detection_mode as Platform['monitoring']['detectionMode'],
+            requiresAuth: false,
+            pollingIntervalSec: r.polling_interval_s,
+          },
+          autofill: mock?.autofill ?? { supported: r.autofill_supported, level: 'full' as const, fieldsCount: 0 },
+          healthStatus: r.health_status as Platform['healthStatus'],
+          lastHealthCheck: r.last_health_check ?? undefined,
+          riskLevel: mock?.riskLevel ?? 'low',
+        } satisfies Platform
+      }),
+      ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
+    ]
+    setPlatforms(merged)
+  }
 
   async function loadRules() {
     const { data: { user } } = await supabase!.auth.getUser()
@@ -430,7 +471,6 @@ export default function RulesPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: true })
     if (data) {
-      const platform = MOCK_PLATFORMS
       setRules(
         data.map((r) => ({
           id: r.id,
@@ -445,7 +485,7 @@ export default function RulesPage() {
           createdAt: r.created_at,
           updatedAt: r.updated_at,
           platformDisplayName:
-            platform.find((p) => p.id === r.platform_id)?.displayName ?? r.platform_id,
+            platforms.find((p) => p.id === r.platform_id)?.displayName ?? r.platform_id,
         })),
       )
     }
@@ -601,7 +641,7 @@ export default function RulesPage() {
           loadRules()
           loadObservations()
         }}
-        platforms={MOCK_PLATFORMS}
+        platforms={platforms}
       />
     </div>
   )
