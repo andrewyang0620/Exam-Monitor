@@ -80,16 +80,22 @@ function parseDetectionPage(html: string): {
   )
   const sectionText = sectionMatch?.[1] ?? text.slice(0, 2000)
 
+  // Collapse split "SOLD\n OUT" → "SOLD OUT" before parsing blocks
+  const normalizedSection = sectionText.replace(/\bSOLD\s*\n+\s*OUT\b/gi, 'SOLD OUT')
+
   // Parse individual session blocks:
   // Pattern: "Next Session: <label>" followed by a status line
   const sessions: SessionBlock[] = []
   const blockPattern =
-    /Next\s+Session[:\s]+([^\n\r]{3,80})\r?\n\s*([^\n\r]{3,120})/gi
+    /Next\s+Session[:\s]+([^\n\r]{3,80})\r?\n[\s\S]{0,100}?([^\n\r]{3,120})/gi
 
   let m: RegExpExecArray | null
-  while ((m = blockPattern.exec(sectionText)) !== null) {
+  while ((m = blockPattern.exec(normalizedSection)) !== null) {
+    const label = m[1].trim().replace(/\s+/g, ' ')
+    // Only track TCF Canada Full Exam — ignore TCF Preparation / other products
+    if (/preparation|préparation|prep\b/i.test(label)) continue
     sessions.push({
-      label: m[1].trim().replace(/\s+/g, ' '),
+      label,
       statusText: m[2].trim().replace(/\s+/g, ' '),
     })
   }
@@ -101,9 +107,8 @@ function parseDetectionPage(html: string): {
 
 function parseProductPage(html: string): 'OUT_OF_STOCK' | 'AVAILABLE' | 'UNKNOWN' {
   const lower = html.toLowerCase()
-  // Check for "out of stock" near the TCF Canada product listing
+  // This is the dedicated TCF Canada Full Exam product page — any OOS signal means SOLD OUT
   if (lower.includes('out of stock') || lower.includes('sold out')) return 'OUT_OF_STOCK'
-  // Check for active order button
   if (lower.includes('add to cart') || lower.includes('order now') || lower.includes(' order '))
     return 'AVAILABLE'
   return 'UNKNOWN'
@@ -141,21 +146,29 @@ function deriveStatus(
     }
   }
 
-  const soldOut = sessions.filter((s) =>
-    s.statusText.toLowerCase().includes('sold out') ||
-    s.statusText.toLowerCase().includes('complet'),
-  )
-  const registrationSoon = sessions.filter((s) =>
-    s.statusText.toLowerCase().includes('registration starts') ||
-    s.statusText.toLowerCase().includes('registration opens'),
-  )
-  const openSessions = sessions.filter(
-    (s) =>
-      !s.statusText.toLowerCase().includes('sold out') &&
-      !s.statusText.toLowerCase().includes('complet') &&
-      !s.statusText.toLowerCase().includes('registration starts') &&
-      !s.statusText.toLowerCase().includes('registration opens'),
-  )
+  const soldOut = sessions.filter((s) => {
+    const t = s.statusText.toLowerCase()
+    return (
+      t.includes('sold out') ||
+      t.includes('complet') ||
+      // "SOLD" alone = first half of a split "SOLD / OUT" after stripTags
+      /^sold(\s|$)/.test(t)
+    )
+  })
+  const registrationSoon = sessions.filter((s) => {
+    const t = s.statusText.toLowerCase()
+    return t.includes('registration starts') || t.includes('registration opens')
+  })
+  const openSessions = sessions.filter((s) => {
+    const t = s.statusText.toLowerCase()
+    return (
+      !t.includes('sold out') &&
+      !t.includes('complet') &&
+      !/^sold(\s|$)/.test(t) &&
+      !t.includes('registration starts') &&
+      !t.includes('registration opens')
+    )
+  })
 
   // OPEN: at least one session with no "SOLD OUT" and no "Registration starts"
   if (openSessions.length > 0) {
@@ -248,7 +261,9 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
   }
 
   try {
-    const res = await fetch(AF_VANCOUVER_PRODUCT_URL, fetchOpts)
+    // Use the specific Full Exam product page, not the category page
+    // (category page also lists TCF Preparation which has its own availability)
+    const res = await fetch(AF_VANCOUVER_REGISTRATION_URL, fetchOpts)
     if (res.ok) {
       productHtml = await res.text()
       fetchedProduct = true
