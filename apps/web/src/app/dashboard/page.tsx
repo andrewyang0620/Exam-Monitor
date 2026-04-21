@@ -63,6 +63,14 @@ function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
   ]
 }
 
+function normalizeStatus(s: string): SeatObservation['availabilityStatus'] {
+  if (s === 'SOLD_OUT' || s === 'EXPECTED') return 'NOT_OPEN'
+  if (s === 'OPEN' || s === 'NOT_OPEN' || s === 'MONITORING' || s === 'UNKNOWN') {
+    return s as SeatObservation['availabilityStatus']
+  }
+  return 'UNKNOWN'
+}
+
 function toObservation(o: DbObservation): SeatObservation {
   const meta = (o.metadata ?? {}) as Record<string, unknown>
   return {
@@ -74,7 +82,7 @@ function toObservation(o: DbObservation): SeatObservation {
     examType: o.exam_type as SeatObservation['examType'],
     sessionLabel: o.session_label ?? undefined,
     sessionDate: o.session_date ?? undefined,
-    availabilityStatus: o.availability_status as SeatObservation['availabilityStatus'],
+    availabilityStatus: normalizeStatus(o.availability_status),
     seatsText: o.seats_text ?? undefined,
     observedAt: o.observed_at,
     sourceHash: o.source_hash ?? '',
@@ -120,12 +128,22 @@ function toNotification(n: DbNotificationWithEvent): NotificationDelivery {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+const EMPTY_STATS: DashboardStats = {
+  activeRulesCount: 0,
+  openAlertsCount: 0,
+  lastCheckAt: new Date().toISOString(),
+  supportedPlatformsCount: 0,
+  monitoredCitiesCount: 0,
+  totalNotificationsSent: 0,
+}
+
 export default function DashboardPage() {
   const [alertDismissed, setAlertDismissed] = useState(false)
+  const [isLoading, setIsLoading] = useState(!isDemoMode)
   const [displayName, setDisplayName] = useState(
-    DEMO_USER.displayName?.split(' ')[0] ?? 'there',
+    isDemoMode ? (DEMO_USER.displayName?.split(' ')[0] ?? 'there') : '',
   )
-  const [stats, setStats] = useState<DashboardStats>(MOCK_STATS)
+  const [stats, setStats] = useState<DashboardStats>(isDemoMode ? MOCK_STATS : EMPTY_STATS)
   const [platforms, setPlatforms] = useState<Platform[]>(isDemoMode ? MOCK_PLATFORMS : [])
   const [followedIds, setFollowedIds] = useState<Set<string>>(
     isDemoMode ? new Set(MOCK_RULES.map((r) => r.platformId)) : new Set<string>(),
@@ -246,6 +264,7 @@ export default function DashboardPage() {
       monitoredCitiesCount: uniqueCities.length || mergedPlatforms.length,
       totalNotificationsSent: (dbNotifs ?? []).length,
     })
+    setIsLoading(false)
   }
 
   async function handleFollow(platform: Platform) {
@@ -299,11 +318,29 @@ export default function DashboardPage() {
     ? changeEvents.find((e) => e.newStatus === 'OPEN')
     : undefined
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col flex-1">
+        <DashboardHeader title="Dashboard" subtitle="Loading..." lastCheckAt={undefined} />
+        <main className="flex-1 p-6 space-y-6">
+          <div className="animate-pulse space-y-4">
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-24 bg-slate-100 rounded-2xl" />
+              ))}
+            </div>
+            <div className="h-64 bg-slate-100 rounded-2xl" />
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col flex-1">
       <DashboardHeader
         title="Dashboard"
-        subtitle={`Welcome back, ${displayName}`}
+        subtitle={displayName ? `Welcome back, ${displayName}` : 'Dashboard'}
         lastCheckAt={stats.lastCheckAt}
       />
 
