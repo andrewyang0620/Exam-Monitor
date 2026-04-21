@@ -62,8 +62,13 @@ function useCountdowns(
         const nextCheckAt = new Date(obs.observedAt).getTime() + intervalSec * 1000
         const remainingSec = Math.floor((nextCheckAt - now) / 1000)
         if (remainingSec <= 0) {
-          // Timer expired — backend check is overdue or we have stale mock data
-          map.set(platform.id, 'checking')
+          // Timer expired. Use modulo to show position in expected next cycle so
+          // the UI stays meaningful even when backend is slightly late or obs is stale.
+          const elapsedSec = Math.floor((now - new Date(obs.observedAt).getTime()) / 1000)
+          const cycleSec = intervalSec - (elapsedSec % intervalSec)
+          const mm = String(Math.floor(cycleSec / 60)).padStart(2, '0')
+          const ss = String(cycleSec % 60).padStart(2, '0')
+          map.set(platform.id, `${mm}:${ss}`)
         } else {
           const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0')
           const ss = String(remainingSec % 60).padStart(2, '0')
@@ -243,11 +248,7 @@ export function MonitoredExamsList({
                 {countdown && (
                   <div className="flex items-center gap-1 mt-1.5 text-[11px] text-slate-400">
                     <Timer className="w-3 h-3" />
-                    {countdown === 'checking' ? (
-                      <span className="italic">Checking…</span>
-                    ) : (
-                      <span>Next check in <span className="font-mono font-medium text-slate-500">{countdown}</span></span>
-                    )}
+                    <span>Next check in <span className="font-mono font-medium text-slate-500">{countdown}</span></span>
                   </div>
                 )}
               </div>

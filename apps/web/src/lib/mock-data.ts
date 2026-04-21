@@ -45,7 +45,7 @@ export const MOCK_PLATFORMS: Platform[] = [
       level: 'full',
       detectionMode: 'html',
       requiresAuth: false,
-      pollingIntervalSec: 120,
+      pollingIntervalSec: 300,
     },
     autofill: {
       supported: true,
@@ -78,7 +78,7 @@ export const MOCK_PLATFORMS: Platform[] = [
       level: 'full',
       detectionMode: 'html',
       requiresAuth: false,
-      pollingIntervalSec: 150,
+      pollingIntervalSec: 300,
     },
     autofill: {
       supported: true,
@@ -143,7 +143,7 @@ export const MOCK_PLATFORMS: Platform[] = [
       level: 'partial',
       detectionMode: 'json-xhr',
       requiresAuth: false,
-      pollingIntervalSec: 240,
+      pollingIntervalSec: 300,
     },
     autofill: {
       supported: false,
