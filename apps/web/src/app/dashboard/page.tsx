@@ -169,6 +169,8 @@ export default function DashboardPage() {
 
   // In local dev, auto-trigger the monitor pipeline every 5 min
   // (Vercel Cron handles this in production)
+  // NOTE: do NOT run immediately on mount — that would overwrite last_success_at
+  // to "now" on every page refresh, making "Last Check" always show "just now".
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development' || isDemoMode) return
     const secret = process.env.NEXT_PUBLIC_DEV_MONITOR_SECRET
@@ -178,7 +180,6 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'x-monitor-secret': secret },
       }).catch(() => {/* silent */})
-    runMonitor() // run once immediately on mount
     const monitorTimer = setInterval(runMonitor, 5 * 60_000)
     return () => clearInterval(monitorTimer)
   }, [])
