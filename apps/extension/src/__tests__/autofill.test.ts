@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { detectPlatform } from '../shared/adapters'
 
 // Mock chrome.storage.local before importing the module under test
 const mockStorage: Record<string, unknown> = {}
@@ -79,11 +80,6 @@ describe('autofill field matching', () => {
 })
 
 describe('platform URL detection', () => {
-  const { detectPlatform, isRegistrationPage } = await import('../shared/adapters').catch(() => ({
-    detectPlatform: (_url: string) => null,
-    isRegistrationPage: (_p: unknown, _url: string) => false,
-  }))
-
   it('detects af-vancouver from afvancouver.com', () => {
     const p = detectPlatform('https://www.afvancouver.com/test-tcf-canada')
     expect(p).not.toBeNull()

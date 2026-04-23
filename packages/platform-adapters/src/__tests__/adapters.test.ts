@@ -43,9 +43,11 @@ describe('adapter registry', () => {
     }
   })
 
-  it('af-vancouver demo status is OPEN', () => {
+  it('af-vancouver is configured for live public-page monitoring', () => {
     const adapter = getAdapter('af-vancouver')
-    expect(adapter?.demoCurrentStatus).toBe('OPEN')
+    expect(adapter?.detectionMode).toBe('html')
+    expect(adapter?.monitoringUrl).toMatch(/^https:\/\/www\.alliancefrancaise\.ca\//)
+    expect(adapter?.authRequiredForMonitoring).toBe(false)
   })
 
   it('af-toronto demo status is SOLD_OUT', () => {

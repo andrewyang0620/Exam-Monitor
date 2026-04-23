@@ -18,6 +18,8 @@ export type ExamType =
 
 export type AvailabilityStatus =
   | 'OPEN'
+  | 'SOLD_OUT'
+  | 'EXPECTED'
   | 'NOT_OPEN'
   | 'MONITORING'
   | 'UNKNOWN'
@@ -259,19 +261,23 @@ export interface AuditLog {
 // ----------------------------
 
 export interface LocalProfileTemplate {
-  fullName: string
+  firstName: string
+  lastName: string
   email: string
   phone: string
-  dob: string               // "YYYY-MM-DD"
-  addressLine1: string
-  addressLine2?: string
+  dateOfBirth: string       // "YYYY-MM-DD"
+  address: string
   city: string
   province: string
   postalCode: string
-  country: string           // Default: "Canada"
-  idNumber?: string         // Optional, stored locally
+  country?: string          // Default: "Canada"
+  nationality?: string
+  passportNumber?: string   // Optional, stored locally
+  nativeLanguage?: string
+  frenchLevel?: string
+  immigrationPurpose?: string
   notes?: string
-  updatedAt: string
+  updatedAt?: string
 }
 
 export interface ExtensionState {

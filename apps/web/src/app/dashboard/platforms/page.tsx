@@ -14,13 +14,18 @@ import {
 import type { Platform } from '@tcf-tracker/types'
 import { MOCK_PLATFORMS } from '@/lib/mock-data'
 import { supabase } from '@/lib/supabase'
-import type { DbPlatform } from '@/lib/database.types'
+import type { DbObservation, DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { formatTimeAgo } from '@tcf-tracker/utils'
 import { AF_VANCOUVER_DETECTION_URL } from '@/app/api/monitor/af-vancouver-parser'
+
+interface PlatformViewModel extends Platform {
+  lastSuccessAt?: string
+  nextWindowText?: string
+}
 
 const healthConfig = {
   operational: {
@@ -71,7 +76,7 @@ const detectionModeLabels = {
   'manual-only': 'Manual only',
 }
 
-function PlatformCard({ platform }: { platform: Platform }) {
+function PlatformCard({ platform }: { platform: PlatformViewModel }) {
   const health = healthConfig[platform.healthStatus] ?? healthConfig.unknown
   const HealthIcon = health.icon
   const monitoring = monitoringLevelLabels[platform.monitoring.level]
@@ -164,22 +169,21 @@ function PlatformCard({ platform }: { platform: Platform }) {
         </div>
 
         {/* Last check */}
-        {platform.lastHealthCheck && (
+        {(platform.lastSuccessAt ?? platform.lastHealthCheck) && (
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-500">Last check</span>
-            <span className="text-xs text-slate-400">{formatTimeAgo(platform.lastHealthCheck)}</span>
+            <span className="text-xs text-slate-400">
+              {formatTimeAgo(platform.lastSuccessAt ?? platform.lastHealthCheck!)}
+            </span>
           </div>
         )}
 
         {/* Next release window */}
-        {platform.fixedReleaseWindows?.[0]?.nextExpectedDate && (
+        {platform.nextWindowText && (
           <div className="flex items-start justify-between gap-2">
             <span className="text-xs text-slate-500">Next window</span>
             <span className="text-xs text-amber-600 font-medium text-right">
-              ~{new Date(platform.fixedReleaseWindows[0].nextExpectedDate).toLocaleDateString('en-CA', {
-                month: 'short',
-                day: 'numeric',
-              })}
+              {platform.nextWindowText}
             </span>
           </div>
         )}
@@ -215,7 +219,18 @@ function PlatformCard({ platform }: { platform: Platform }) {
 // Map a Supabase platforms row into the Platform shape the UI expects.
 // Fields not stored in DB (fixedReleaseWindows, notes, autofill details)
 // fall back to MOCK_PLATFORMS data for the same platform id.
-function dbPlatformToPlatform(row: DbPlatform): Platform {
+function getObservationNextWindow(row: DbObservation | undefined): string | undefined {
+  const metadata = row?.metadata as Record<string, unknown> | null | undefined
+  const nextWindowText = metadata?.nextWindowText
+  return typeof nextWindowText === 'string' && nextWindowText.trim()
+    ? nextWindowText
+    : undefined
+}
+
+function dbPlatformToPlatform(
+  row: DbPlatform,
+  latestObservation?: DbObservation,
+): PlatformViewModel {
   const mockFallback = MOCK_PLATFORMS.find((p) => p.id === row.id)
   return {
     id: row.id,
@@ -238,8 +253,10 @@ function dbPlatformToPlatform(row: DbPlatform): Platform {
       fieldsCount: 0,
     },
     healthStatus: row.health_status as Platform['healthStatus'],
-    lastHealthCheck: row.last_health_check ?? mockFallback?.lastHealthCheck,
-    fixedReleaseWindows: mockFallback?.fixedReleaseWindows,
+    lastHealthCheck: row.last_health_check ?? undefined,
+    lastSuccessAt: row.last_success_at ?? undefined,
+    fixedReleaseWindows: undefined,
+    nextWindowText: getObservationNextWindow(latestObservation),
     riskLevel: mockFallback?.riskLevel ?? 'low',
     notes: mockFallback?.notes,
   }
@@ -247,7 +264,7 @@ function dbPlatformToPlatform(row: DbPlatform): Platform {
 
 export default function PlatformsPage() {
   const [search, setSearch] = useState('')
-  const [platforms, setPlatforms] = useState<Platform[]>(MOCK_PLATFORMS)
+  const [platforms, setPlatforms] = useState<PlatformViewModel[]>(MOCK_PLATFORMS)
 
   useEffect(() => {
     loadPlatforms()
@@ -264,11 +281,24 @@ export default function PlatformsPage() {
 
     if (error || !data || data.length === 0) return
 
+    const { data: observations } = await supabase
+      .from('seat_observations')
+      .select('*')
+      .order('observed_at', { ascending: false })
+      .limit(50)
+
+    const latestObsByPlatform = new Map<string, DbObservation>()
+    for (const observation of (observations ?? []) as DbObservation[]) {
+      if (!latestObsByPlatform.has(observation.platform_id)) {
+        latestObsByPlatform.set(observation.platform_id, observation)
+      }
+    }
+
     // Replace any MOCK entry with the real DB row for that platform id.
     // Platforms not yet in the DB remain as mock.
     const dbIds = new Set(data.map((r) => r.id))
-    const merged: Platform[] = [
-      ...data.map(dbPlatformToPlatform),
+    const merged: PlatformViewModel[] = [
+      ...data.map((row) => dbPlatformToPlatform(row as DbPlatform, latestObsByPlatform.get(row.id))),
       ...MOCK_PLATFORMS.filter((p) => !dbIds.has(p.id)),
     ]
     // Stable sort: DB platforms first (they're real), then mocks

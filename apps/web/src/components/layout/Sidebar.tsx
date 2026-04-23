@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   BookOpen,
@@ -15,6 +16,12 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DEMO_USER, getUnreadCount } from '@/lib/mock-data'
+import { supabase, isDemoMode } from '@/lib/supabase'
+
+interface SidebarUser {
+  displayName: string
+  email: string
+}
 
 const navItems = [
   {
@@ -47,7 +54,89 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const unreadCount = getUnreadCount()
+  const [user, setUser] = useState<SidebarUser>({
+    displayName: DEMO_USER.displayName ?? 'Demo User',
+    email: DEMO_USER.email,
+  })
+  const [isSigningOut, setIsSigningOut] = useState(false)
+
+  useEffect(() => {
+    if (isDemoMode || !supabase) return
+
+    let isMounted = true
+
+    async function loadUser() {
+      const {
+        data: { user: authUser },
+      } = await supabase!.auth.getUser()
+
+      if (!authUser || !isMounted) return
+
+      const { data: profile } = await supabase!
+        .from('profiles')
+        .select('email, display_name')
+        .eq('id', authUser.id)
+        .maybeSingle()
+
+      if (!isMounted) return
+
+      const email = profile?.email ?? authUser.email ?? ''
+      const metadataDisplayName = authUser.user_metadata?.display_name
+      const displayName =
+        profile?.display_name?.trim() ||
+        (typeof metadataDisplayName === 'string' ? metadataDisplayName.trim() : '') ||
+        email.split('@')[0] ||
+        'Account'
+
+      setUser({
+        displayName,
+        email,
+      })
+    }
+
+    loadUser()
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        router.replace('/auth')
+      }
+    })
+
+    return () => {
+      isMounted = false
+      listener.subscription.unsubscribe()
+    }
+  }, [router])
+
+  async function handleSignOut() {
+    setIsSigningOut(true)
+
+    if (isDemoMode || !supabase) {
+      router.replace('/auth')
+      return
+    }
+
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      setIsSigningOut(false)
+      return
+    }
+
+    router.replace('/auth')
+  }
+
+  function getInitials(name: string, email: string) {
+    const source = name.trim() || email.split('@')[0] || 'Account'
+    const parts = source.split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+    }
+    return source.slice(0, 2).toUpperCase()
+  }
+
+  const initials = getInitials(user.displayName, user.email)
 
   return (
     <aside
@@ -128,15 +217,26 @@ export function Sidebar() {
 
       {/* User */}
       <div className="px-3 pb-4 border-t border-[#1a2740] pt-3">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#141f35] transition-colors cursor-pointer group">
+        <div className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#141f35] transition-colors group">
           <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-[11px] font-semibold text-white">LM</span>
+            <span className="text-[11px] font-semibold text-white">{initials}</span>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-slate-300 truncate">{DEMO_USER.displayName}</div>
-            <div className="text-[10px] text-slate-500 truncate">{DEMO_USER.email}</div>
+            <div className="text-xs font-medium text-slate-300 truncate">{user.displayName}</div>
+            <div className="text-[10px] text-slate-500 truncate">
+              {isSigningOut ? 'Signing out...' : user.email}
+            </div>
           </div>
-          <LogOut className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 flex-shrink-0" />
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={isSigningOut}
+            aria-label="Sign out"
+            title="Sign out"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-[#1e3a5f] hover:text-slate-300 disabled:cursor-wait disabled:opacity-70 flex-shrink-0"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </aside>

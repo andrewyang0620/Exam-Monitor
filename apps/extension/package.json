@@ -7,7 +7,8 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "preview": "vite preview",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tcf-tracker/types": "workspace:*",
@@ -17,10 +18,13 @@
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.23",
+    "@vitejs/plugin-react": "^4.3.1",
     "@types/chrome": "^0.0.268",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "jsdom": "^24.1.1",
     "typescript": "^5.4.5",
-    "vite": "^5.2.13"
+    "vite": "^5.2.13",
+    "vitest": "^1.6.0"
   }
 }

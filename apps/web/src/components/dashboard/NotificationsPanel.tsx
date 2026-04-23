@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Bell, ExternalLink, CheckCheck, ChevronRight } from 'lucide-react'
 import type { NotificationDelivery } from '@tcf-tracker/types'
-import { formatTimeAgo, getStatusDotColor } from '@tcf-tracker/utils'
+import { formatTimeAgo, getStatusDotColor, getStatusLabel } from '@tcf-tracker/utils'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -100,11 +100,11 @@ export function NotificationsPanel({ notifications }: NotificationsPanelProps) {
                 <p className="text-xs text-slate-500 mt-0.5">
                   {event.examType} ·{' '}
                   {isOpen ? (
-                    <span className="text-emerald-600 font-medium">Seats opened</span>
-                  ) : event.newStatus === 'NOT_OPEN' ? (
-                    <span className="text-slate-500 font-medium">Not open</span>
+                    <span className="text-emerald-600 font-medium">{getStatusLabel(event.newStatus)}</span>
+                  ) : event.newStatus === 'NOT_OPEN' || event.newStatus === 'SOLD_OUT' || event.newStatus === 'EXPECTED' ? (
+                    <span className="text-slate-500 font-medium">{getStatusLabel(event.newStatus)}</span>
                   ) : (
-                    <span className="font-medium">{event.newStatus}</span>
+                    <span className="font-medium">{getStatusLabel(event.newStatus)}</span>
                   )}
                 </p>
 

@@ -108,7 +108,7 @@ export default function Popup() {
         <div style={{ background: '#ECFDF5', borderBottom: '1px solid #A7F3D0', padding: '10px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             {dot(COLORS.emerald, true)}
-            <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.emerald }}>Seats available!</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.emerald }}>Seats Available</span>
           </div>
           <div style={{ fontSize: 11, color: '#065F46', marginBottom: 8 }}>
             <strong>{state.latestAlert.platformName}</strong> · {state.latestAlert.examType} · {state.latestAlert.city}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeStatus, detectChange, hashContent } from '@tcf-tracker/utils'
+import { normalizeStatus, detectChange, hashContent, getStatusLabel } from '@tcf-tracker/utils'
 import type { SeatObservation } from '@tcf-tracker/types'
 
 // Common keyword sets mirroring the AF Vancouver adapter
@@ -102,5 +102,16 @@ describe('hashContent', () => {
 
   it('different inputs produce different hashes', () => {
     expect(hashContent('Complet')).not.toBe(hashContent('Available'))
+  })
+})
+
+describe('getStatusLabel', () => {
+  it('maps availability statuses to user-facing labels', () => {
+    expect(getStatusLabel('OPEN')).toBe('Seats Available')
+    expect(getStatusLabel('SOLD_OUT')).toBe('Sold Out')
+    expect(getStatusLabel('EXPECTED')).toBe('Sold Out')
+    expect(getStatusLabel('NOT_OPEN')).toBe('Sold Out')
+    expect(getStatusLabel('MONITORING')).toBe('Monitoring')
+    expect(getStatusLabel('UNKNOWN')).toBe('Unknown')
   })
 })
