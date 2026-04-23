@@ -11,7 +11,7 @@ import {
   Eye,
 } from 'lucide-react'
 import type { NotificationDelivery, ChangeEvent } from '@tcf-tracker/types'
-import { formatTimeAgo, getStatusDotColor, getStatusLabel } from '@tcf-tracker/utils'
+import { formatTimeAgo, getStatusLabel } from '@tcf-tracker/utils'
 import { MOCK_NOTIFICATIONS } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
@@ -25,14 +25,6 @@ const CHANNEL_ICONS = {
   browser: Bell,
   email: Mail,
   sms: Smartphone,
-}
-
-const EVENT_TYPE_LABELS = {
-  OPENED: 'Seats opened',
-  SOLD_OUT: 'Sold out',
-  DATE_ADDED: 'New date added',
-  STATUS_CHANGED: 'Status changed',
-  UNKNOWN_CHANGE: 'Change detected',
 }
 
 function NotificationRow({
@@ -89,7 +81,7 @@ function NotificationRow({
                 'text-xs font-medium',
                 isOpen ? 'text-emerald-600' : event.newStatus === 'NOT_OPEN' ? 'text-slate-600' : 'text-slate-600'
               )}>
-                {EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}
+                {getStatusLabel(event.newStatus)}
               </span>
             </div>
           </div>
@@ -259,7 +251,7 @@ export default function NotificationsPage() {
                 [
                   { key: 'all', label: 'All' },
                   { key: 'unread', label: `Unread ${unreadCount > 0 ? `(${unreadCount})` : ''}` },
-                  { key: 'open', label: 'Open seats' },
+                  { key: 'open', label: 'Seats Available' },
                 ] as const
               ).map(({ key, label }) => (
                 <button
@@ -294,7 +286,7 @@ export default function NotificationsPage() {
                 {filter === 'unread'
                   ? "You're all caught up!"
                   : filter === 'open'
-                  ? 'No open seat alerts at this time'
+                  ? 'No Seats Available alerts at this time'
                   : 'Notifications will appear here when monitoring detects changes'}
               </p>
             </div>

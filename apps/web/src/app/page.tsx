@@ -148,9 +148,9 @@ export default function LandingPage() {
               <div className="bg-white rounded-xl border border-slate-200 p-3">
                 <div className="text-xs font-semibold text-slate-700 mb-2">Monitored Exams</div>
                 {[
-                  { name: 'AF Vancouver', exam: 'TEF Canada', status: 'OPEN', statusColor: 'text-emerald-600 bg-emerald-50' },
-                  { name: 'AF Toronto', exam: 'TCF Canada', status: 'NOT OPEN', statusColor: 'text-slate-600 bg-slate-100' },
-                  { name: 'Campus France', exam: 'TCF Canada', status: 'NOT OPEN', statusColor: 'text-slate-600 bg-slate-100' },
+                  { name: 'AF Vancouver', exam: 'TEF Canada', status: 'Seats Available', statusColor: 'text-emerald-600 bg-emerald-50' },
+                  { name: 'AF Toronto', exam: 'TCF Canada', status: 'Sold Out', statusColor: 'text-slate-600 bg-slate-100' },
+                  { name: 'Campus France', exam: 'TCF Canada', status: 'Sold Out', statusColor: 'text-slate-600 bg-slate-100' },
                 ].map((item) => (
                   <div key={item.name} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
                     <div>

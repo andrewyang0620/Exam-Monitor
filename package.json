@@ -5,9 +5,9 @@
   "description": "TEF/TCF Canada exam seat monitoring and autofill assistant",
   "scripts": {
     "dev": "pnpm --filter web dev",
-    "build": "pnpm --filter web build && pnpm --filter extension build",
+    "build": "pnpm --filter web build && pnpm --filter tcf-tracker-extension build",
     "build:web": "pnpm --filter web build",
-    "build:extension": "pnpm --filter extension build",
+    "build:extension": "pnpm --filter tcf-tracker-extension build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "type-check": "pnpm -r type-check"

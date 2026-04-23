@@ -62,7 +62,7 @@ export function normalizeStatus(params: {
   // Sold out takes priority over available if both signals present
   if (soldMatches.length > 0 && availMatches.length === 0) {
     const confidence = Math.min(0.5 + soldMatches.length * 0.15, 0.95)
-    return { status: 'NOT_OPEN', confidence }
+    return { status: 'SOLD_OUT', confidence }
   }
 
   if (availMatches.length > 0 && soldMatches.length === 0) {
@@ -104,13 +104,15 @@ export function detectChange(
   const prev = previous.availabilityStatus
   const curr = current.availabilityStatus
 
-  if (prev === 'NOT_OPEN' && curr === 'OPEN') return 'OPENED'
+  if ((prev === 'NOT_OPEN' || prev === 'SOLD_OUT' || prev === 'EXPECTED') && curr === 'OPEN') {
+    return 'OPENED'
+  }
   if (prev === 'UNKNOWN' && curr === 'OPEN') return 'OPENED'
   if (prev === 'MONITORING' && curr === 'OPEN') return 'OPENED'
 
-  if (prev === 'OPEN' && curr === 'NOT_OPEN') return 'SOLD_OUT'
+  if (prev === 'OPEN' && (curr === 'NOT_OPEN' || curr === 'SOLD_OUT')) return 'SOLD_OUT'
 
-  if (prev === 'UNKNOWN' && curr === 'NOT_OPEN') return 'DATE_ADDED'
+  if (prev === 'UNKNOWN' && (curr === 'NOT_OPEN' || curr === 'EXPECTED')) return 'DATE_ADDED'
 
   return 'STATUS_CHANGED'
 }
@@ -163,8 +165,10 @@ export function formatFullDate(dateString: string): string {
 
 export function getStatusLabel(status: AvailabilityStatus): string {
   const labels: Record<AvailabilityStatus, string> = {
-    OPEN: 'Open',
-    NOT_OPEN: 'Not Open',
+    OPEN: 'Seats Available',
+    SOLD_OUT: 'Sold Out',
+    EXPECTED: 'Sold Out',
+    NOT_OPEN: 'Sold Out',
     MONITORING: 'Monitoring',
     UNKNOWN: 'Unknown',
   }
@@ -174,6 +178,8 @@ export function getStatusLabel(status: AvailabilityStatus): string {
 export function getStatusColor(status: AvailabilityStatus): string {
   const colors: Record<AvailabilityStatus, string> = {
     OPEN: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+    SOLD_OUT: 'text-slate-600 bg-slate-100 border-slate-200',
+    EXPECTED: 'text-amber-700 bg-amber-50 border-amber-200',
     NOT_OPEN: 'text-slate-600 bg-slate-100 border-slate-200',
     MONITORING: 'text-blue-600 bg-blue-50 border-blue-200',
     UNKNOWN: 'text-slate-500 bg-slate-50 border-slate-200',
@@ -184,6 +190,8 @@ export function getStatusColor(status: AvailabilityStatus): string {
 export function getStatusDotColor(status: AvailabilityStatus): string {
   const colors: Record<AvailabilityStatus, string> = {
     OPEN: 'bg-emerald-500',
+    SOLD_OUT: 'bg-slate-400',
+    EXPECTED: 'bg-amber-500',
     NOT_OPEN: 'bg-slate-400',
     MONITORING: 'bg-blue-500',
     UNKNOWN: 'bg-slate-400',
@@ -198,15 +206,15 @@ export function getStatusDotColor(status: AvailabilityStatus): string {
 import type { LocalProfileTemplate } from '@tcf-tracker/types'
 
 const REQUIRED_PROFILE_FIELDS: (keyof LocalProfileTemplate)[] = [
-  'fullName',
+  'firstName',
+  'lastName',
   'email',
   'phone',
-  'dob',
-  'addressLine1',
+  'dateOfBirth',
+  'address',
   'city',
   'province',
   'postalCode',
-  'country',
 ]
 
 export function computeProfileCompletion(profile: Partial<LocalProfileTemplate>): number {

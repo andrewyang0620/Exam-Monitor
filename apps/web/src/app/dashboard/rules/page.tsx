@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import type { BadgeProps } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Helpers
 
 function mergePlatforms(dbRows: DbPlatform[]): Platform[] {
   const dbIds = new Set(dbRows.map((r) => r.id))
@@ -87,11 +87,11 @@ function toObservation(o: {
   }
 }
 
-// â”€â”€â”€ StatusBadge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// StatusBadge
 
 function StatusBadge({ status }: { status: SeatObservation['availabilityStatus'] }) {
   const variantMap: Record<string, BadgeProps['variant']> = {
-    OPEN: 'open', NOT_OPEN: 'not-open', MONITORING: 'monitoring', UNKNOWN: 'unknown',
+    OPEN: 'open', SOLD_OUT: 'sold', EXPECTED: 'expected', NOT_OPEN: 'not-open', MONITORING: 'monitoring', UNKNOWN: 'unknown',
   }
   return (
     <Badge variant={variantMap[status] ?? 'unknown'}>
@@ -101,7 +101,7 @@ function StatusBadge({ status }: { status: SeatObservation['availabilityStatus']
   )
 }
 
-// â”€â”€â”€ SubscriptionCard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// SubscriptionCard
 
 function SubscriptionCard({
   rule,
@@ -203,7 +203,7 @@ function SubscriptionCard({
   )
 }
 
-// â”€â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Page
 
 export default function WatchlistPage() {
   const [rules, setRules] = useState<MonitoringRule[]>(isDemoMode ? MOCK_RULES : [])
@@ -356,19 +356,19 @@ export default function WatchlistPage() {
             <h3 className="text-sm font-semibold text-slate-800 mb-2">How it works</h3>
             <ul className="space-y-1.5 text-xs text-slate-500">
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">â€¢</span>
-                The system continuously monitors public exam pages â€” no setup required
+                <span className="text-blue-500 mt-0.5">-</span>
+                The system continuously monitors public exam pages - no setup required
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">â€¢</span>
+                <span className="text-blue-500 mt-0.5">-</span>
                 When seats open, you receive alerts via your chosen channels
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">â€¢</span>
+                <span className="text-blue-500 mt-0.5">-</span>
                 Use the Chrome extension to autofill your registration profile locally
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-500 mt-0.5">â€¢</span>
+                <span className="text-blue-500 mt-0.5">-</span>
                 Final registration and payment are always completed manually by you
               </li>
             </ul>

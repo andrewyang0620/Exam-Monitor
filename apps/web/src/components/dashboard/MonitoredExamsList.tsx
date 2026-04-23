@@ -13,6 +13,8 @@ import type { BadgeProps } from '@/components/ui/badge'
 function StatusBadge({ status }: { status: SeatObservation['availabilityStatus'] }) {
   const variantMap: Record<string, BadgeProps['variant']> = {
     OPEN: 'open',
+    SOLD_OUT: 'sold',
+    EXPECTED: 'expected',
     NOT_OPEN: 'not-open',
     MONITORING: 'monitoring',
     UNKNOWN: 'unknown',
@@ -231,7 +233,7 @@ export function MonitoredExamsList({
                   )}
                 </div>
 
-                {/* Row 3: secondary info for NOT_OPEN — only for real platforms with real parser output */}
+                {/* Row 3: secondary info for NOT_OPEN - only for real platforms with real parser output */}
                 {!platform.isPreview && obs?.availabilityStatus === 'NOT_OPEN' && (nextWindowText || upcomingSessionLabels) && (
                   <div className="mt-1.5 space-y-0.5">
                     {nextWindowText && (
