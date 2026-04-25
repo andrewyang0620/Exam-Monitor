@@ -1,22 +1,15 @@
 /**
  * POST /api/monitor
  *
- * Triggers the monitoring pipeline for Alliance Française Vancouver (TCF Canada).
+ * Triggers the monitoring pipeline for supported real platforms.
  * Protected by MONITOR_API_SECRET header.
  *
  * Flow:
- *  1. Fetch + parse the public detection page
+ *  1. Fetch + parse each supported platform
  *  2. Insert seat_observation
- *  3. Compare with last observation — if status changed, insert change_event
+ *  3. Compare with last observation; if status changed, insert change_event
  *  4. Fan out notification_deliveries to all matching active rules
- *  5. Send emails for rules with 'email' channel (via Resend scaffold)
- *
- * Trigger manually:
- *   curl -X POST https://your-app.com/api/monitor \
- *        -H "x-monitor-secret: <MONITOR_API_SECRET>"
- *
- * For scheduled runs, point a cron service (Vercel Cron, GitHub Actions, etc.)
- * at this endpoint with the secret header.
+ *  5. Send emails for rules with 'email' channel
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -25,44 +18,80 @@ import {
   parseAllianceFrancaiseVancouver,
   AF_VANCOUVER_REGISTRATION_URL,
 } from './af-vancouver-parser'
+import {
+  parseAllianceFrancaiseToronto,
+  AF_TORONTO_ID,
+  AF_TORONTO_TCF_PAGE_URL,
+} from './af-toronto-parser'
 import { sendEmail, buildSeatOpenedEmail } from '@/lib/email'
 
-// ─── Auth guard ───────────────────────────────────────────────────────────────
+interface ParsedObservationLike {
+  platformId: string
+  centerName: string
+  city: string
+  province: string
+  examType: string
+  sessionLabel: string
+  availabilityStatus: string
+  seatsText: string
+  sourceUrl: string
+  sourceHash: string
+  confidence: number
+  detectedText: string
+  nextWindowText?: string
+  upcomingSessionLabels?: string[]
+  soldOutSessionLabels?: string[]
+}
+
+interface PlatformMonitorConfig {
+  platformId: string
+  registrationUrl: string
+  parse: () => Promise<ParsedObservationLike>
+}
+
+const MONITORED_PLATFORMS: PlatformMonitorConfig[] = [
+  {
+    platformId: 'af-vancouver',
+    registrationUrl: AF_VANCOUVER_REGISTRATION_URL,
+    parse: parseAllianceFrancaiseVancouver,
+  },
+  {
+    platformId: AF_TORONTO_ID,
+    registrationUrl: AF_TORONTO_TCF_PAGE_URL,
+    parse: parseAllianceFrancaiseToronto,
+  },
+]
 
 function verifySecret(req: NextRequest): boolean {
   const secret = process.env.MONITOR_API_SECRET
   if (!secret) {
-    // No secret configured — only allow in development
     return process.env.NODE_ENV !== 'production'
   }
-  // Manual trigger via x-monitor-secret header
   if (req.headers.get('x-monitor-secret') === secret) return true
-  // Vercel Cron sends: Authorization: Bearer <CRON_SECRET>
   const authHeader = req.headers.get('authorization') ?? ''
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true
   return false
 }
 
-// ─── Event type derivation ────────────────────────────────────────────────────
-
-function deriveEventType(
-  previousStatus: string | null,
-  newStatus: string,
-): string {
+function deriveEventType(previousStatus: string | null, newStatus: string): string {
   if (newStatus === 'OPEN') return 'OPENED'
   if (newStatus === 'NOT_OPEN' && previousStatus === 'OPEN') return 'SOLD_OUT'
-  if (newStatus === 'NOT_OPEN' && (!previousStatus || previousStatus === 'MONITORING' || previousStatus === 'UNKNOWN')) {
+  if (
+    newStatus === 'NOT_OPEN' &&
+    (!previousStatus || previousStatus === 'MONITORING' || previousStatus === 'UNKNOWN')
+  ) {
     return 'DATE_ADDED'
   }
   return 'STATUS_CHANGED'
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
-
-// ─── Health helpers ───────────────────────────────────────────────────────────
-
-async function recordSuccess(db: ReturnType<typeof createServiceClient>, now: string, latestObservedAt: string) {
+async function recordSuccess(
+  db: ReturnType<typeof createServiceClient>,
+  platformId: string,
+  now: string,
+  latestObservedAt: string,
+) {
   await db
     .from('platforms')
     .update({
@@ -73,15 +102,19 @@ async function recordSuccess(db: ReturnType<typeof createServiceClient>, now: st
       health_status: 'operational',
       updated_at: now,
     })
-    .eq('id', 'af-vancouver')
+    .eq('id', platformId)
 }
 
-async function recordFailure(db: ReturnType<typeof createServiceClient>, now: string, message: string) {
-  // Read current consecutive_failures then increment
+async function recordFailure(
+  db: ReturnType<typeof createServiceClient>,
+  platformId: string,
+  now: string,
+  message: string,
+) {
   const { data: row } = await db
     .from('platforms')
     .select('consecutive_failures')
-    .eq('id', 'af-vancouver')
+    .eq('id', platformId)
     .single()
 
   const newCount = (row?.consecutive_failures ?? 0) + 1
@@ -95,46 +128,47 @@ async function recordFailure(db: ReturnType<typeof createServiceClient>, now: st
       health_status: newCount >= 3 ? 'degraded' : 'operational',
       updated_at: now,
     })
-    .eq('id', 'af-vancouver')
+    .eq('id', platformId)
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
-
-export async function POST(req: NextRequest) {
-  if (!verifySecret(req)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const db = createServiceClient()
-  const now = new Date().toISOString()
-
-  let parsed: Awaited<ReturnType<typeof parseAllianceFrancaiseVancouver>>
+async function processPlatformMonitor(
+  db: ReturnType<typeof createServiceClient>,
+  config: PlatformMonitorConfig,
+  now: string,
+) {
+  let parsed: ParsedObservationLike
   try {
-    // 1. Fetch and parse
-    parsed = await parseAllianceFrancaiseVancouver()
-    console.log('[monitor] parsed:', parsed.availabilityStatus, parsed.sessionLabel, parsed.confidence)
+    parsed = await config.parse()
+    console.log(
+      '[monitor] parsed:',
+      config.platformId,
+      parsed.availabilityStatus,
+      parsed.sessionLabel,
+      parsed.confidence,
+    )
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
-    console.error('[monitor] parse/fetch failed:', msg)
-    await recordFailure(db, now, `Fetch/parse failed: ${msg}`)
-    return NextResponse.json({ error: 'fetch_failed', detail: msg }, { status: 502 })
+    console.error('[monitor] parse/fetch failed:', config.platformId, msg)
+    await recordFailure(db, config.platformId, now, `Fetch/parse failed: ${msg}`)
+    return {
+      platformId: config.platformId,
+      ok: false,
+      error: 'fetch_failed',
+      detail: msg,
+    }
   }
 
   try {
-    // 2. Get last observation to compare hash + status
     const { data: lastObs } = await db
       .from('seat_observations')
       .select('id, availability_status, source_hash')
-      .eq('platform_id', 'af-vancouver')
+      .eq('platform_id', config.platformId)
       .order('observed_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    // Skip if hash identical (page hasn't changed at all)
-    // last_success_at = now (check ran successfully)
-    // latest_observed_at is NOT updated — it tracks the last content-change time, not check time
     if (lastObs?.source_hash === parsed.sourceHash) {
-      console.log('[monitor] hash unchanged — skipping DB write')
+      console.log('[monitor] hash unchanged - skipping DB write:', config.platformId)
       await db
         .from('platforms')
         .update({
@@ -143,17 +177,18 @@ export async function POST(req: NextRequest) {
           last_error_message: null,
           health_status: 'operational',
           updated_at: now,
-          // latest_observed_at intentionally NOT updated — it reflects last content-change, not last check
         })
-        .eq('id', 'af-vancouver')
-      return NextResponse.json({
+        .eq('id', config.platformId)
+
+      return {
+        platformId: config.platformId,
+        ok: true,
         changed: false,
         status: parsed.availabilityStatus,
         reason: 'hash_unchanged',
-      })
+      }
     }
 
-    // 3. Insert new seat_observation
     const { data: newObs, error: obsErr } = await db
       .from('seat_observations')
       .insert({
@@ -169,7 +204,6 @@ export async function POST(req: NextRequest) {
         source_hash: parsed.sourceHash,
         confidence: parsed.confidence,
         observed_at: now,
-        // Store informational fields in metadata jsonb (no schema change needed)
         metadata: {
           nextWindowText: parsed.nextWindowText ?? null,
           upcomingSessionLabels: parsed.upcomingSessionLabels ?? null,
@@ -183,22 +217,21 @@ export async function POST(req: NextRequest) {
       throw new Error(`observation insert failed: ${obsErr?.message}`)
     }
 
-    // Record success: last_success_at = now, latest_observed_at = now (content actually changed)
-    await recordSuccess(db, now, now)
+    await recordSuccess(db, config.platformId, now, now)
 
-    // 4. No status change — done
     const previousStatus = lastObs?.availability_status ?? null
     if (previousStatus === parsed.availabilityStatus) {
-      console.log('[monitor] status unchanged:', parsed.availabilityStatus)
-      return NextResponse.json({
+      console.log('[monitor] status unchanged:', config.platformId, parsed.availabilityStatus)
+      return {
+        platformId: config.platformId,
+        ok: true,
         changed: false,
         status: parsed.availabilityStatus,
         observationId: newObs.id,
         reason: 'status_unchanged',
-      })
+      }
     }
 
-    // 5. Status changed — insert change_event
     const eventType = deriveEventType(previousStatus, parsed.availabilityStatus)
 
     const { data: changeEvent, error: evtErr } = await db
@@ -214,7 +247,7 @@ export async function POST(req: NextRequest) {
         detected_at: now,
         confidence: parsed.confidence,
         raw_observation_id: newObs.id,
-        official_url: AF_VANCOUVER_REGISTRATION_URL,
+        official_url: config.registrationUrl,
       })
       .select('id')
       .single()
@@ -224,22 +257,19 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(
-      `[monitor] change event created: ${previousStatus} → ${parsed.availabilityStatus} (${eventType})`,
+      `[monitor] change event created for ${config.platformId}: ${previousStatus} -> ${parsed.availabilityStatus} (${eventType})`,
     )
 
-    // 6. Find all active rules matching this platform
     const { data: matchingRules } = await db
       .from('monitoring_rules')
       .select('id, user_id, channels')
-      .eq('platform_id', 'af-vancouver')
+      .eq('platform_id', config.platformId)
       .eq('is_active', true)
 
     const rules = matchingRules ?? []
-    console.log(`[monitor] fanning out to ${rules.length} rule(s)`)
+    console.log(`[monitor] ${config.platformId} fanout to ${rules.length} rule(s)`)
 
-    // 7. For each rule: create notification_deliveries + send email
     for (const rule of rules) {
-      // Browser notification delivery
       await db.from('notification_deliveries').insert({
         user_id: rule.user_id,
         change_event_id: changeEvent.id,
@@ -249,7 +279,6 @@ export async function POST(req: NextRequest) {
         sent_at: now,
       })
 
-      // Email delivery (if channel includes 'email')
       if ((rule.channels as string[]).includes('email')) {
         const { data: profile } = await db
           .from('profiles')
@@ -263,7 +292,7 @@ export async function POST(req: NextRequest) {
             centerName: parsed.centerName,
             examType: parsed.examType,
             city: parsed.city,
-            registrationUrl: AF_VANCOUVER_REGISTRATION_URL,
+            registrationUrl: config.registrationUrl,
             detectedAt: now,
           })
           template.to = profile.email
@@ -281,7 +310,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    return {
+      platformId: config.platformId,
+      ok: true,
       changed: true,
       eventType,
       previousStatus,
@@ -289,17 +320,50 @@ export async function POST(req: NextRequest) {
       changeEventId: changeEvent.id,
       observationId: newObs.id,
       notifiedRules: rules.length,
-    })
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error('[monitor] pipeline error:', msg)
-    await recordFailure(db, now, msg)
-    return NextResponse.json({ error: 'pipeline_error', detail: msg }, { status: 500 })
+    console.error('[monitor] pipeline error:', config.platformId, msg)
+    await recordFailure(db, config.platformId, now, msg)
+    return {
+      platformId: config.platformId,
+      ok: false,
+      error: 'pipeline_error',
+      detail: msg,
+    }
   }
 }
 
-// Also support GET — used by Vercel Cron (which sends GET with Authorization: Bearer <CRON_SECRET>)
-// Falls through to the same pipeline as POST.
+export async function POST(req: NextRequest) {
+  if (!verifySecret(req)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const db = createServiceClient()
+  const now = new Date().toISOString()
+  const results = []
+
+  for (const config of MONITORED_PLATFORMS) {
+    results.push(await processPlatformMonitor(db, config, now))
+  }
+
+  const okCount = results.filter((result) => result.ok).length
+  const changedCount = results.filter((result) => result.ok && result.changed).length
+  const status = okCount === 0 ? 502 : 200
+
+  return NextResponse.json(
+    {
+      ok: okCount > 0,
+      checkedAt: now,
+      monitoredPlatforms: MONITORED_PLATFORMS.map((platform) => platform.platformId),
+      okCount,
+      changedCount,
+      results,
+    },
+    { status },
+  )
+}
+
 export async function GET(req: NextRequest) {
   return POST(req)
 }

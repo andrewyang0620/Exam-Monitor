@@ -294,7 +294,12 @@ export default function WatchlistPage() {
     }
   }
 
-  const obsMap = new Map(observations.map((o) => [o.platformId, o]))
+  const obsMap = new Map<string, SeatObservation>()
+  for (const observation of observations) {
+    if (!obsMap.has(observation.platformId)) {
+      obsMap.set(observation.platformId, observation)
+    }
+  }
 
   return (
     <div className="flex flex-col flex-1">
