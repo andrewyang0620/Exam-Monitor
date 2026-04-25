@@ -138,8 +138,10 @@ const EMPTY_STATS: DashboardStats = {
   totalNotificationsSent: 0,
 }
 
+const DEV_MONITOR_INTERVAL_MS = 5 * 60 * 1000
+
 export default function DashboardPage() {
-  const [alertDismissed, setAlertDismissed] = useState(false)
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(!isDemoMode)
   const [displayName, setDisplayName] = useState(
     isDemoMode ? (DEMO_USER.displayName?.split(' ')[0] ?? 'there') : '',
@@ -173,6 +175,43 @@ export default function DashboardPage() {
   // To trigger a monitor run in development, run:
   //   pnpm monitor   (or manually POST /api/monitor with x-monitor-secret header)
   // Production monitoring is handled by Vercel Cron (vercel.json: */5 * * * *)
+
+  useEffect(() => {
+    if (isDemoMode || !supabase || process.env.NODE_ENV === 'production') return
+
+    let cancelled = false
+    let inFlight = false
+
+    async function runDevMonitor() {
+      if (inFlight || cancelled) return
+      inFlight = true
+
+      try {
+        await fetch('/api/dev-monitor', {
+          method: 'POST',
+          cache: 'no-store',
+        })
+      } catch (error) {
+        console.warn('[dashboard] dev monitor trigger failed:', error)
+      } finally {
+        inFlight = false
+      }
+
+      if (!cancelled) {
+        await loadDashboard()
+      }
+    }
+
+    void runDevMonitor()
+    const monitorTimer = setInterval(() => {
+      void runDevMonitor()
+    }, DEV_MONITOR_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      clearInterval(monitorTimer)
+    }
+  }, [])
 
   async function loadDashboard() {
     const {
@@ -239,7 +278,15 @@ export default function DashboardPage() {
     setNotifications(mappedNotifs)
 
     // Computed stats
-    const openAlerts = mappedEvents.filter((e) => e.newStatus === 'OPEN').length
+    const latestObservationByPlatform = new Map<string, SeatObservation>()
+    for (const observation of (dbObs ?? []).map(toObservation)) {
+      if (!latestObservationByPlatform.has(observation.platformId)) {
+        latestObservationByPlatform.set(observation.platformId, observation)
+      }
+    }
+    const openAlerts = [...latestObservationByPlatform.values()].filter(
+      (observation) => observation.availabilityStatus === 'OPEN',
+    ).length
     // Use the most recent successful monitor run across all DB platforms as global Last Check.
     // Falls back to the most recent seat_observation.observed_at if no platform has been checked yet.
     const allSuccessTimestamps = (dbPlatformRows ?? [])
@@ -311,9 +358,34 @@ export default function DashboardPage() {
       .eq('platform_id', platformId)
   }
 
-  const liveAlert = !alertDismissed
-    ? changeEvents.find((e) => e.newStatus === 'OPEN')
-    : undefined
+  const latestObservationByPlatform = new Map<string, SeatObservation>()
+  for (const observation of observations) {
+    if (!latestObservationByPlatform.has(observation.platformId)) {
+      latestObservationByPlatform.set(observation.platformId, observation)
+    }
+  }
+
+  const openPlatformIds = new Set(
+    [...latestObservationByPlatform.values()]
+      .filter((observation) => observation.availabilityStatus === 'OPEN')
+      .map((observation) => observation.platformId),
+  )
+
+  const latestOpenEventByPlatform = new Map<string, ChangeEvent>()
+  for (const event of changeEvents) {
+    if (
+      event.newStatus === 'OPEN' &&
+      event.platformId &&
+      openPlatformIds.has(event.platformId) &&
+      !latestOpenEventByPlatform.has(event.platformId)
+    ) {
+      latestOpenEventByPlatform.set(event.platformId, event)
+    }
+  }
+
+  const liveAlerts = [...latestOpenEventByPlatform.values()].filter(
+    (event) => !dismissedAlertIds.has(event.id),
+  )
 
   if (isLoading) {
     return (
@@ -344,11 +416,18 @@ export default function DashboardPage() {
 
       <main className="flex-1 p-6 space-y-6">
         {/* Live alert banner */}
-        {liveAlert && (
-          <AlertBanner
-            event={liveAlert}
-            onDismiss={() => setAlertDismissed(true)}
-          />
+        {liveAlerts.length > 0 && (
+          <div className="space-y-3">
+            {liveAlerts.map((event) => (
+              <AlertBanner
+                key={event.id}
+                event={event}
+                onDismiss={() =>
+                  setDismissedAlertIds((prev) => new Set(prev).add(event.id))
+                }
+              />
+            ))}
+          </div>
         )}
 
         {/* Stats row */}

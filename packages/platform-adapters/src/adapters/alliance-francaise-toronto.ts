@@ -18,13 +18,13 @@ const allianceFrancaiseToronto: PlatformAdapter = {
   region: 'Greater Toronto Area',
 
   examTypesSupported: ['TEF', 'TEF Canada', 'TCF Canada'],
-  entryUrl: 'https://www.alliance-francaise.ca/en/services/french-tests',
-  monitoringUrl: 'https://www.alliance-francaise.ca/en/services/french-tests',
+  entryUrl: 'https://www.alliance-francaise.ca/en/exams/tests/informations-about-tcf-canada',
+  monitoringUrl: 'https://www.alliance-francaise.ca/en/exams/tests/informations-about-tcf-canada/tcf-canada',
 
   detectionMode: 'html',
   authRequiredForMonitoring: false,
 
-  recommendedPollingIntervalSec: 120,  // 2 min in normal mode
+  recommendedPollingIntervalSec: 300,  // 5 min until the live parser is proven stable
   cooldownSeconds: 600,                // 10 min between alerts
 
   availabilitySelectors: [

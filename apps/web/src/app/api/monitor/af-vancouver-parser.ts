@@ -49,6 +49,11 @@ interface SessionBlock {
   statusText: string
 }
 
+interface FetchFailure {
+  source: 'detection' | 'product'
+  reason: string
+}
+
 // ─── HTML helpers ─────────────────────────────────────────────────────────────
 
 function stripTags(html: string): string {
@@ -68,6 +73,13 @@ function stripTags(html: string): string {
 
 function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16)
+}
+
+function describeFetchError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.name === 'TimeoutError' ? 'timeout' : err.message
+  }
+  return String(err)
 }
 
 // ─── Detection page parser ────────────────────────────────────────────────────
@@ -236,15 +248,22 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
   let productHtml = ''
   let fetchedDetection = false
   let fetchedProduct = false
+  const failures: FetchFailure[] = []
 
   try {
     const res = await fetch(AF_VANCOUVER_DETECTION_URL, fetchOpts)
     if (res.ok) {
       detectionHtml = await res.text()
       fetchedDetection = true
+    } else {
+      const reason = `http_${res.status}`
+      failures.push({ source: 'detection', reason })
+      console.warn('[parser] detection page fetch failed:', reason)
     }
   } catch (err) {
-    console.warn('[parser] detection page fetch failed:', err)
+    const reason = describeFetchError(err)
+    failures.push({ source: 'detection', reason })
+    console.warn('[parser] detection page fetch failed:', reason)
   }
 
   try {
@@ -254,13 +273,22 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
     if (res.ok) {
       productHtml = await res.text()
       fetchedProduct = true
+    } else {
+      const reason = `http_${res.status}`
+      failures.push({ source: 'product', reason })
+      console.warn('[parser] product page fetch failed:', reason)
     }
   } catch (err) {
-    console.warn('[parser] product page fetch failed:', err)
+    const reason = describeFetchError(err)
+    failures.push({ source: 'product', reason })
+    console.warn('[parser] product page fetch failed:', reason)
   }
 
   // Full failure
   if (!fetchedDetection && !fetchedProduct) {
+    const failureText = failures.length > 0
+      ? failures.map((f) => `${f.source}:${f.reason}`).join('; ')
+      : 'unknown'
     return {
       platformId: AF_VANCOUVER_ID,
       centerName: 'Alliance Française de Vancouver',
@@ -269,11 +297,11 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
       examType: 'TCF Canada',
       sessionLabel: 'Fetch failed',
       availabilityStatus: 'MONITORING',
-      seatsText: 'Could not reach exam page',
+      seatsText: `Could not reach exam page (${failureText})`,
       sourceUrl: AF_VANCOUVER_DETECTION_URL,
-      sourceHash: hashText('fetch-failed'),
+      sourceHash: hashText(`fetch-failed|${failureText}`),
       confidence: 0.0,
-      detectedText: '',
+      detectedText: failureText,
     }
   }
 
@@ -311,7 +339,12 @@ export async function parseAllianceFrancaiseVancouver(): Promise<ParsedObservati
     sourceUrl: AF_VANCOUVER_DETECTION_URL,
     sourceHash,
     confidence: Math.max(0, Math.min(1, confidence)),
-    detectedText: sectionText.slice(0, 500),
+    detectedText: [
+      sectionText.slice(0, 500),
+      failures.length > 0
+        ? `fetch_failures=${failures.map((f) => `${f.source}:${f.reason}`).join('; ')}`
+        : '',
+    ].filter(Boolean).join(' | '),
     nextWindowText,
     upcomingSessionLabels,
     soldOutSessionLabels,

@@ -107,7 +107,12 @@ export function MonitoredExamsList({
   onUnfollow,
 }: MonitoredExamsListProps) {
   const [pendingId, setPendingId] = useState<string | null>(null)
-  const obsMap = new Map(observations.map((o) => [o.platformId, o]))
+  const obsMap = new Map<string, SeatObservation>()
+  for (const observation of observations) {
+    if (!obsMap.has(observation.platformId)) {
+      obsMap.set(observation.platformId, observation)
+    }
+  }
   const countdowns = useCountdowns(platforms, observations)
 
   async function handleToggle(platform: Platform) {
