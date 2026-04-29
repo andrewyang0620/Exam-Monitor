@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import {
-  Bell,
   Mail,
   MapPin,
   ExternalLink,
@@ -166,9 +165,9 @@ function SubscriptionCard({
       {/* Notification channels */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">Notify via</span>
-        {(['browser', 'email'] as const).map((ch) => {
+        {(['email'] as const).map((ch) => {
           const enabled = rule.channels.includes(ch)
-          const Icon = ch === 'browser' ? Bell : Mail
+          const Icon = Mail
           return (
             <button
               key={ch}
@@ -181,7 +180,7 @@ function SubscriptionCard({
               )}
             >
               <Icon className="w-3 h-3" />
-              {ch === 'browser' ? 'Browser' : 'Email'}
+              Email
             </button>
           )
         })}

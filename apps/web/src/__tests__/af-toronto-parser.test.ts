@@ -8,10 +8,11 @@ const TORONTO_NOT_OPEN_HTML = `
   <html>
     <body>
       <h1>TCF Canada</h1>
-      <p>Q1 (Jan-Mar) opens on Tuesday, December 2nd 2025 at 10:00 a.m.</p>
-      <p>Q2 (Apr-Jun) opens on Monday, March 2nd 2026 at 10:00 a.m.</p>
-      <p>Q3 (Jul-Sep) opens on Wednesday, May 20th 2026 at 10:00 a.m.</p>
-      <p>Q4 (Oct-Dec) opens on Saturday, August 15th 2026 at 10:00 a.m.</p>
+      <p>Registration for 2026 will open at 10:00 a.m. on the following dates:</p>
+      <p>Q1 (Jan-Mar): December 2, 2025</p>
+      <p>Q2 (Apr-Jun): March 2, 2026</p>
+      <p>Q3 (Jul-Sep): May 20, 2026 (date has changed)</p>
+      <p>Q4 (Oct-Dec): August 15, 2026</p>
       <h2>Registrations</h2>
       <h2>E-TCF Canada</h2>
       <h3>Dates &amp; Times</h3>
@@ -48,7 +49,7 @@ describe('parseAllianceFrancaiseTorontoHtml', () => {
     })
 
     expect(parsed.availabilityStatus).toBe('NOT_OPEN')
-    expect(parsed.nextWindowText).toContain('May 20th 2026 at 10:00 a.m.')
+    expect(parsed.nextWindowText).toContain('May 20, 2026 at 10:00 AM')
     expect(parsed.upcomingSessionLabels).toContain('Q3 (Jul-Sep)')
     expect(parsed.seatsText).toContain('No sessions currently available')
   })

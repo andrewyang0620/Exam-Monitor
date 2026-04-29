@@ -198,8 +198,8 @@ export default function LandingPage() {
                 icon: Bell,
                 title: 'You get alerted',
                 description:
-                  'The moment seats become available, you receive an instant notification via browser push or email. No delays, no missed openings.',
-                detail: 'Browser + email channels',
+                  'The moment seats become available, you receive an instant notification by email. No delays, no missed openings.',
+                detail: 'Email alerts',
               },
               {
                 step: '03',
@@ -267,8 +267,8 @@ export default function LandingPage() {
               },
               {
                 icon: Bell,
-                title: 'Browser + email alerts',
-                desc: 'Choose your notification channels per rule. Browser push, email, or both.',
+                title: 'Email alerts',
+                desc: 'Choose email alerts for the exams you follow.',
               },
               {
                 icon: Shield,

@@ -82,7 +82,7 @@ const faqSections = [
       {
         question: 'Can I rely only on email?',
         answer:
-          'Email delivery depends on your account settings and the mail provider. For time-sensitive registration, keep the dashboard and browser notifications in your workflow as well.',
+          'Email delivery depends on your account settings and the mail provider. For time-sensitive registration, keep the dashboard open and treat email as the primary alert channel.',
       },
     ],
   },

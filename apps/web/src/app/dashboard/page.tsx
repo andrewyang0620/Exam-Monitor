@@ -122,6 +122,7 @@ function toNotification(n: DbNotificationWithEvent): NotificationDelivery {
     channel: n.channel as NotificationDelivery['channel'],
     status: n.status as NotificationDelivery['status'],
     sentAt: n.sent_at ?? undefined,
+    errorMessage: n.error_message ?? undefined,
     isViewed: n.is_viewed,
     event,
   }
@@ -324,7 +325,7 @@ export default function DashboardPage() {
       platform_id: platform.id,
       exam_type: primaryExam,
       city: platform.city,
-      channels: ['browser', 'email'],
+      channels: ['email'],
       is_active: true,
       priority: 1,
       date_preference: 'any',

@@ -32,6 +32,12 @@ interface OpeningWindow {
   opensAt?: Date
 }
 
+interface RegistrationTimeContext {
+  displayTime: string
+  hour24: number
+  minute: number
+}
+
 function stripTags(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -94,13 +100,61 @@ function parseHumanDate(input: string): Date | undefined {
   return new Date(year, month, day, hour, minute, 0, 0)
 }
 
+function parseMonthDayYearDate(input: string): Date | undefined {
+  const normalized = normalizeHumanDate(input)
+  const match = normalized.match(
+    /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*(\d{4})$/i,
+  )
+  if (!match) return undefined
+
+  const monthMap: Record<string, number> = {
+    january: 0,
+    february: 1,
+    march: 2,
+    april: 3,
+    may: 4,
+    june: 5,
+    july: 6,
+    august: 7,
+    september: 8,
+    october: 9,
+    november: 10,
+    december: 11,
+  }
+
+  return new Date(Number(match[3]), monthMap[match[1].toLowerCase()], Number(match[2]), 0, 0, 0, 0)
+}
+
+function parseRegistrationTimeContext(text: string): RegistrationTimeContext | undefined {
+  const match = text.match(
+    /Registration\s+for\s+\d{4}\s+will\s+open\s+at\s+(\d{1,2}):(\d{2})\s*(a\.m\.|p\.m\.|AM|PM)/i,
+  )
+  if (!match) return undefined
+
+  const minute = Number(match[2])
+  let hour24 = Number(match[1])
+  const ampm = match[3].toUpperCase()
+
+  if (ampm.includes('P') && hour24 !== 12) hour24 += 12
+  if (ampm.includes('A') && hour24 === 12) hour24 = 0
+
+  return {
+    displayTime: `${match[1]}:${match[2]} ${ampm.includes('P') ? 'PM' : 'AM'}`,
+    hour24,
+    minute,
+  }
+}
+
 function parseOpeningWindows(text: string): OpeningWindow[] {
   const windows: OpeningWindow[] = []
-  const pattern =
+  const oldPattern =
     /Q([1-4])\s*\(([^)]+)\)\s+opens on\s+([A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s+[ap]\.m\.)/gi
+  const registrationTime = parseRegistrationTimeContext(text)
+  const newPattern =
+    /Q([1-4])\s*\(([^)]+)\)\s*:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})(?:\s*\([^)]+\))?/gi
 
   let match: RegExpExecArray | null
-  while ((match = pattern.exec(text)) !== null) {
+  while ((match = oldPattern.exec(text)) !== null) {
     const opensText = match[3].trim()
     const opensAt = parseHumanDate(opensText)
 
@@ -108,6 +162,31 @@ function parseOpeningWindows(text: string): OpeningWindow[] {
       label: `Q${match[1]} (${match[2].trim()})`,
       opensText,
       opensAt,
+    })
+  }
+
+  while ((match = newPattern.exec(text)) !== null) {
+    const label = `Q${match[1]} (${match[2].trim()})`
+    const dateText = normalizeHumanDate(match[3])
+    const opensText = registrationTime
+      ? `${dateText} at ${registrationTime.displayTime}`
+      : dateText
+    const opensAt = parseMonthDayYearDate(dateText)
+
+    windows.push({
+      label,
+      opensText,
+      opensAt: opensAt
+        ? new Date(
+            opensAt.getFullYear(),
+            opensAt.getMonth(),
+            opensAt.getDate(),
+            registrationTime?.hour24 ?? 0,
+            registrationTime?.minute ?? 0,
+            0,
+            0,
+          )
+        : undefined,
     })
   }
 

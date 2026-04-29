@@ -114,6 +114,12 @@ function NotificationRow({
           )}
         </div>
 
+        {notification.status === 'failed' && notification.errorMessage && (
+          <p className="mt-2 text-[11px] text-red-600 leading-relaxed">
+            {notification.errorMessage}
+          </p>
+        )}
+
         {/* Actions */}
         <div className="flex items-center gap-2 mt-2.5">
           {isOpen && (
@@ -179,6 +185,7 @@ export default function NotificationsPage() {
             channel: n.channel as NotificationDelivery['channel'],
             status: n.status as NotificationDelivery['status'],
             sentAt: n.sent_at ?? undefined,
+            errorMessage: n.error_message ?? undefined,
             isViewed: n.is_viewed,
             event: ce
               ? {

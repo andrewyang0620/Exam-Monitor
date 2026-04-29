@@ -17,10 +17,17 @@ import {
 import { cn } from '@/lib/utils'
 import { DEMO_USER, getUnreadCount } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
+import { formatTimeAgo } from '@tcf-tracker/utils'
 
 interface SidebarUser {
   displayName: string
   email: string
+}
+
+interface SidebarMonitoringState {
+  activeRulesCount: number
+  lastCheckAt?: string
+  unreadCount: number
 }
 
 const navItems = [
@@ -55,7 +62,11 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const unreadCount = getUnreadCount()
+  const [monitoringState, setMonitoringState] = useState<SidebarMonitoringState>({
+    activeRulesCount: 3,
+    lastCheckAt: undefined,
+    unreadCount: getUnreadCount(),
+  })
   const [user, setUser] = useState<SidebarUser>({
     displayName: DEMO_USER.displayName ?? 'Demo User',
     email: DEMO_USER.email,
@@ -67,7 +78,7 @@ export function Sidebar() {
 
     let isMounted = true
 
-    async function loadUser() {
+    async function loadSidebarState() {
       const {
         data: { user: authUser },
       } = await supabase!.auth.getUser()
@@ -94,9 +105,42 @@ export function Sidebar() {
         displayName,
         email,
       })
+
+      const [
+        { count: activeRulesCount },
+        { data: platformRows },
+        { count: unreadCount },
+      ] = await Promise.all([
+        supabase!
+          .from('monitoring_rules')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', authUser.id)
+          .eq('is_active', true),
+        supabase!
+          .from('platforms')
+          .select('last_success_at')
+          .eq('is_active', true),
+        supabase!
+          .from('notification_deliveries')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', authUser.id)
+          .eq('is_viewed', false),
+      ])
+
+      if (!isMounted) return
+
+      const allSuccessTimestamps = (platformRows ?? [])
+        .map((row) => row.last_success_at)
+        .filter((value): value is string => Boolean(value))
+
+      setMonitoringState({
+        activeRulesCount: activeRulesCount ?? 0,
+        lastCheckAt: allSuccessTimestamps.length > 0 ? allSuccessTimestamps.sort().at(-1) : undefined,
+        unreadCount: unreadCount ?? 0,
+      })
     }
 
-    loadUser()
+    loadSidebarState()
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
@@ -143,7 +187,6 @@ export function Sidebar() {
       className="fixed left-0 top-0 h-screen w-[240px] flex flex-col z-30"
       style={{ backgroundColor: '#0A1628', borderRight: '1px solid #1a2740' }}
     >
-      {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-[#1a2740]">
         <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
           <Activity className="w-4 h-4 text-white" />
@@ -154,12 +197,14 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
           const Icon = item.icon
-          const badge = item.badgeKey === 'notifications' && unreadCount > 0 ? unreadCount : null
+          const badge =
+            item.badgeKey === 'notifications' && monitoringState.unreadCount > 0
+              ? monitoringState.unreadCount
+              : null
 
           return (
             <Link
@@ -184,15 +229,12 @@ export function Sidebar() {
                   {badge}
                 </span>
               )}
-              {isActive && (
-                <ChevronRight className="w-3 h-3 text-blue-400 opacity-60" />
-              )}
+              {isActive && <ChevronRight className="w-3 h-3 text-blue-400 opacity-60" />}
             </Link>
           )
         })}
       </nav>
 
-      {/* Monitoring status */}
       <div className="mx-3 mb-3 px-3 py-3 rounded-xl bg-[#0f2040] border border-[#1a3050]">
         <div className="flex items-center gap-2 mb-1">
           <span className="relative flex h-2 w-2">
@@ -201,10 +243,12 @@ export function Sidebar() {
           </span>
           <span className="text-xs font-medium text-emerald-400">Active Monitoring</span>
         </div>
-        <p className="text-xs text-slate-500">3 rules · Last check 2m ago</p>
+        <p className="text-xs text-slate-500">
+          {monitoringState.activeRulesCount} rules
+          {monitoringState.lastCheckAt ? ` · Last check ${formatTimeAgo(monitoringState.lastCheckAt)}` : ''}
+        </p>
       </div>
 
-      {/* Extension CTA */}
       <div className="mx-3 mb-3">
         <a
           href="#"
@@ -215,7 +259,6 @@ export function Sidebar() {
         </a>
       </div>
 
-      {/* User */}
       <div className="px-3 pb-4 border-t border-[#1a2740] pt-3">
         <div className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#141f35] transition-colors group">
           <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">

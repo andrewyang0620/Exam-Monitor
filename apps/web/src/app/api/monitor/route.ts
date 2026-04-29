@@ -270,16 +270,9 @@ async function processPlatformMonitor(
     console.log(`[monitor] ${config.platformId} fanout to ${rules.length} rule(s)`)
 
     for (const rule of rules) {
-      await db.from('notification_deliveries').insert({
-        user_id: rule.user_id,
-        change_event_id: changeEvent.id,
-        rule_id: rule.id,
-        channel: 'browser',
-        status: 'sent',
-        sent_at: now,
-      })
+      const channels = (rule.channels as string[]) ?? []
 
-      if ((rule.channels as string[]).includes('email')) {
+      if (channels.includes('email')) {
         const { data: profile } = await db
           .from('profiles')
           .select('email, display_name')
@@ -297,16 +290,29 @@ async function processPlatformMonitor(
           })
           template.to = profile.email
 
-          const sent = await sendEmail(template)
+          const emailResult = await sendEmail(template)
           await db.from('notification_deliveries').insert({
             user_id: rule.user_id,
             change_event_id: changeEvent.id,
             rule_id: rule.id,
             channel: 'email',
-            status: sent ? 'sent' : 'failed',
-            sent_at: sent ? now : null,
+            status: emailResult.ok ? 'sent' : 'failed',
+            error_message: emailResult.ok ? null : emailResult.errorMessage ?? 'Email delivery failed',
+            sent_at: emailResult.ok ? now : null,
           })
         }
+      }
+
+      if (channels.includes('sms')) {
+        await db.from('notification_deliveries').insert({
+          user_id: rule.user_id,
+          change_event_id: changeEvent.id,
+          rule_id: rule.id,
+          channel: 'sms',
+          status: 'failed',
+          error_message: 'SMS notifications are not implemented yet',
+          sent_at: null,
+        })
       }
     }
 
