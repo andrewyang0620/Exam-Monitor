@@ -19,6 +19,7 @@ import {
   DEMO_USER,
 } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
+import { fetchLatestObservationsForPlatforms } from '@/lib/latest-observations'
 import type {
   Platform,
   SeatObservation,
@@ -122,6 +123,7 @@ function toNotification(n: DbNotificationWithEvent): NotificationDelivery {
     channel: n.channel as NotificationDelivery['channel'],
     status: n.status as NotificationDelivery['status'],
     sentAt: n.sent_at ?? undefined,
+    errorMessage: n.error_message ?? undefined,
     isViewed: n.is_viewed,
     event,
   }
@@ -249,11 +251,10 @@ export default function DashboardPage() {
     setFollowedIds(followedPlatformIds)
 
     // Latest observations per platform
-    const { data: dbObs } = await supabase!
-      .from('seat_observations')
-      .select('*')
-      .order('observed_at', { ascending: false })
-      .limit(20)
+    const dbObs = await fetchLatestObservationsForPlatforms(
+      supabase!,
+      (dbPlatformRows ?? []).map((row) => row.id),
+    )
     setObservations((dbObs ?? []).map(toObservation))
 
     // Latest change events
@@ -324,7 +325,7 @@ export default function DashboardPage() {
       platform_id: platform.id,
       exam_type: primaryExam,
       city: platform.city,
-      channels: ['browser', 'email'],
+      channels: ['email'],
       is_active: true,
       priority: 1,
       date_preference: 'any',

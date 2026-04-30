@@ -1,9 +1,9 @@
 /**
- * Email provider wrapper — V1 scaffold
+ * Email provider wrapper - V1 scaffold
  *
  * Currently wired to Resend (https://resend.com).
  * Set RESEND_API_KEY + EMAIL_FROM in env to activate real sends.
- * Without those vars, emails are logged to console and silently skipped.
+ * Without those vars, emails are logged to console and skipped.
  *
  * To swap provider: replace the fetch block below with your provider's SDK call.
  */
@@ -14,19 +14,18 @@ export interface EmailPayload {
   html: string
 }
 
-export async function sendEmail(payload: EmailPayload): Promise<boolean> {
+export interface EmailSendResult {
+  ok: boolean
+  errorMessage?: string
+}
+
+export async function sendEmail(payload: EmailPayload): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY
   const from = process.env.EMAIL_FROM ?? 'ExamSeat Monitor <noreply@examseats.app>'
 
   if (!apiKey) {
-    // No provider configured — log and skip
-    console.log(
-      '[email] RESEND_API_KEY not set — skipping send:',
-      payload.subject,
-      '→',
-      payload.to,
-    )
-    return false
+    console.log('[email] RESEND_API_KEY not set - skipping send:', payload.subject, '->', payload.to)
+    return { ok: false, errorMessage: 'RESEND_API_KEY is not configured' }
   }
 
   try {
@@ -47,17 +46,22 @@ export async function sendEmail(payload: EmailPayload): Promise<boolean> {
     if (!res.ok) {
       const body = await res.text()
       console.error('[email] Resend error', res.status, body)
-      return false
+      const compactBody = body.replace(/\s+/g, ' ').trim().slice(0, 300)
+      return {
+        ok: false,
+        errorMessage: compactBody ? `Resend ${res.status}: ${compactBody}` : `Resend ${res.status}`,
+      }
     }
 
-    return true
+    return { ok: true }
   } catch (err) {
     console.error('[email] send failed', err)
-    return false
+    return {
+      ok: false,
+      errorMessage: err instanceof Error ? err.message.slice(0, 300) : 'Email send failed',
+    }
   }
 }
-
-// ─── Email templates ──────────────────────────────────────────────────────────
 
 export function buildSeatOpenedEmail(params: {
   displayName: string
@@ -67,7 +71,7 @@ export function buildSeatOpenedEmail(params: {
   registrationUrl: string
   detectedAt: string
 }): EmailPayload {
-  const { displayName, centerName, examType, city, registrationUrl, detectedAt } = params
+  const { centerName, examType, city, registrationUrl, detectedAt } = params
   const time = new Date(detectedAt).toLocaleString('en-CA', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -75,15 +79,15 @@ export function buildSeatOpenedEmail(params: {
   })
 
   return {
-    to: '', // caller sets this
-    subject: `🟢 Exam seats available — ${examType} at ${centerName}`,
+    to: '',
+    subject: `Seats available - ${examType} at ${centerName}`,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1e293b">
         <div style="background:#0A1628;padding:24px 28px;border-radius:12px 12px 0 0">
           <span style="color:#fff;font-size:16px;font-weight:700">ExamSeat Monitor</span>
         </div>
         <div style="padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
-          <h2 style="margin:0 0 8px;font-size:20px;color:#059669">🟢 Seats are open!</h2>
+          <h2 style="margin:0 0 8px;font-size:20px;color:#059669">Seats are open</h2>
           <p style="margin:0 0 20px;color:#64748b;font-size:14px">Detected at ${time} (Pacific)</p>
 
           <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
@@ -97,7 +101,7 @@ export function buildSeatOpenedEmail(params: {
 
           <a href="${registrationUrl}"
              style="display:block;text-align:center;background:#2563EB;color:#fff;padding:14px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-bottom:20px">
-            Register Now →
+            Open official page
           </a>
 
           <p style="font-size:11px;color:#94a3b8;margin:0;line-height:1.5">

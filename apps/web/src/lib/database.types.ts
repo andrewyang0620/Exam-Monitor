@@ -172,6 +172,7 @@ export interface Database {
           rule_id: string | null
           channel: string
           status: string
+          error_message: string | null
           sent_at: string | null
           is_viewed: boolean
           viewed_at: string | null
@@ -184,6 +185,7 @@ export interface Database {
           rule_id?: string | null
           channel: string
           status?: string
+          error_message?: string | null
           sent_at?: string | null
           is_viewed?: boolean
           viewed_at?: string | null
@@ -191,6 +193,7 @@ export interface Database {
         }
         Update: {
           status?: string
+          error_message?: string | null
           sent_at?: string | null
           is_viewed?: boolean
           viewed_at?: string | null

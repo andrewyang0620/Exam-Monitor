@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import {
-  Bell,
   Mail,
   MapPin,
   ExternalLink,
@@ -14,6 +13,7 @@ import type { MonitoringRule, Platform, SeatObservation } from '@tcf-tracker/typ
 import { getStatusDotColor, getStatusLabel, formatTimeAgo } from '@tcf-tracker/utils'
 import { MOCK_RULES, MOCK_PLATFORMS, MOCK_OBSERVATIONS } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
+import { fetchLatestObservationsForPlatforms } from '@/lib/latest-observations'
 import type { DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
@@ -166,9 +166,9 @@ function SubscriptionCard({
       {/* Notification channels */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">Notify via</span>
-        {(['browser', 'email'] as const).map((ch) => {
+        {(['email'] as const).map((ch) => {
           const enabled = rule.channels.includes(ch)
-          const Icon = ch === 'browser' ? Bell : Mail
+          const Icon = Mail
           return (
             <button
               key={ch}
@@ -181,7 +181,7 @@ function SubscriptionCard({
               )}
             >
               <Icon className="w-3 h-3" />
-              {ch === 'browser' ? 'Browser' : 'Email'}
+              Email
             </button>
           )
         })}
@@ -256,11 +256,10 @@ export default function WatchlistPage() {
       )
     }
 
-    const { data: dbObs } = await supabase!
-      .from('seat_observations')
-      .select('*')
-      .order('observed_at', { ascending: false })
-      .limit(20)
+    const dbObs = await fetchLatestObservationsForPlatforms(
+      supabase!,
+      (dbSubs ?? []).map((rule) => rule.platform_id),
+    )
     if (dbObs) setObservations(dbObs.map(toObservation))
   }
 

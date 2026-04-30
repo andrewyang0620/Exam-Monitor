@@ -14,6 +14,7 @@ import {
 import type { Platform } from '@tcf-tracker/types'
 import { MOCK_PLATFORMS } from '@/lib/mock-data'
 import { supabase } from '@/lib/supabase'
+import { fetchLatestObservationsForPlatforms } from '@/lib/latest-observations'
 import type { DbObservation, DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
@@ -281,14 +282,13 @@ export default function PlatformsPage() {
 
     if (error || !data || data.length === 0) return
 
-    const { data: observations } = await supabase
-      .from('seat_observations')
-      .select('*')
-      .order('observed_at', { ascending: false })
-      .limit(50)
+    const observations = await fetchLatestObservationsForPlatforms(
+      supabase,
+      data.map((row) => row.id),
+    )
 
     const latestObsByPlatform = new Map<string, DbObservation>()
-    for (const observation of (observations ?? []) as DbObservation[]) {
+    for (const observation of observations as DbObservation[]) {
       if (!latestObsByPlatform.has(observation.platform_id)) {
         latestObsByPlatform.set(observation.platform_id, observation)
       }
