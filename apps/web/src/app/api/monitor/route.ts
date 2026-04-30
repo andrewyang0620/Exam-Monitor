@@ -21,7 +21,7 @@ import {
 import {
   parseAllianceFrancaiseToronto,
   AF_TORONTO_ID,
-  AF_TORONTO_TCF_PAGE_URL,
+  AF_TORONTO_ACTIVE_SEARCH_URL,
 } from './af-toronto-parser'
 import { sendEmail, buildSeatOpenedEmail } from '@/lib/email'
 
@@ -57,7 +57,7 @@ const MONITORED_PLATFORMS: PlatformMonitorConfig[] = [
   },
   {
     platformId: AF_TORONTO_ID,
-    registrationUrl: AF_TORONTO_TCF_PAGE_URL,
+    registrationUrl: AF_TORONTO_ACTIVE_SEARCH_URL,
     parse: parseAllianceFrancaiseToronto,
   },
 ]
@@ -84,6 +84,12 @@ function deriveEventType(previousStatus: string | null, newStatus: string): stri
     return 'DATE_ADDED'
   }
   return 'STATUS_CHANGED'
+}
+
+function shouldCreateChangeEvent(previousStatus: string | null, newStatus: string): boolean {
+  if (newStatus === 'OPEN') return previousStatus !== 'OPEN'
+  if (previousStatus === 'OPEN' && newStatus === 'NOT_OPEN') return true
+  return false
 }
 
 async function recordSuccess(
@@ -229,6 +235,24 @@ async function processPlatformMonitor(
         status: parsed.availabilityStatus,
         observationId: newObs.id,
         reason: 'status_unchanged',
+      }
+    }
+
+    if (!shouldCreateChangeEvent(previousStatus, parsed.availabilityStatus)) {
+      console.log(
+        '[monitor] non-actionable transition - skipping event fanout:',
+        config.platformId,
+        previousStatus,
+        '->',
+        parsed.availabilityStatus,
+      )
+      return {
+        platformId: config.platformId,
+        ok: true,
+        changed: false,
+        status: parsed.availabilityStatus,
+        observationId: newObs.id,
+        reason: 'non_actionable_transition',
       }
     }
 

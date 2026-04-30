@@ -3,8 +3,12 @@ import { createHash } from 'crypto'
 export const AF_TORONTO_ID = 'af-toronto'
 export const AF_TORONTO_TCF_PAGE_URL =
   'https://www.alliance-francaise.ca/en/exams/tests/informations-about-tcf-canada/tcf-canada'
-export const AF_TORONTO_TCF_FAQ_URL =
-  'https://www.alliance-francaise.ca/en/exams/tests/informations-about-tcf-canada'
+export const AF_TORONTO_ACTIVE_SEARCH_URL =
+  'https://anc.ca.apm.activecommunities.com/aftoronto/activity/search?onlineSiteId=0&activity_select_param=0&activity_category_ids=30&viewMode=list'
+export const AF_TORONTO_ACTIVE_LIST_API_URL =
+  'https://anc.ca.apm.activecommunities.com/aftoronto/rest/activities/list'
+export const AF_TORONTO_ACTIVE_SUBS_API_URL =
+  'https://anc.ca.apm.activecommunities.com/aftoronto/rest/activities/subs'
 
 export type AvailabilityStatus = 'OPEN' | 'NOT_OPEN' | 'MONITORING' | 'UNKNOWN'
 
@@ -38,6 +42,51 @@ interface RegistrationTimeContext {
   minute: number
 }
 
+interface ActiveLink {
+  href?: string
+  label?: string
+}
+
+interface ActiveUrgentMessage {
+  status_description?: string | null
+}
+
+interface ActiveLabeledField {
+  label?: string | null
+}
+
+interface ActiveActivityItem {
+  id: number
+  name?: string | null
+  num_of_sub_activities?: number | null
+  urgent_message?: ActiveUrgentMessage | null
+  action_link?: ActiveLink | null
+  enroll_now?: ActiveLink | null
+}
+
+interface ActiveSubActivity {
+  id: number
+  name?: string | null
+  number?: string | null
+  date_range?: string | null
+  enroll_now?: ActiveLink | null
+  urgent_message?: ActiveUrgentMessage | null
+  fee?: ActiveLabeledField | null
+  location?: ActiveLabeledField | null
+}
+
+interface ActiveListResponse {
+  body?: {
+    activity_items?: ActiveActivityItem[]
+  }
+}
+
+interface ActiveSubsResponse {
+  body?: {
+    sub_activities?: ActiveSubActivity[]
+  }
+}
+
 function stripTags(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -63,41 +112,6 @@ function normalizeHumanDate(input: string): string {
     .replace(/p\.m\./gi, 'PM')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-function parseHumanDate(input: string): Date | undefined {
-  const normalized = normalizeHumanDate(input)
-  const match = normalized.match(
-    /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i,
-  )
-  if (!match) return undefined
-
-  const monthMap: Record<string, number> = {
-    january: 0,
-    february: 1,
-    march: 2,
-    april: 3,
-    may: 4,
-    june: 5,
-    july: 6,
-    august: 7,
-    september: 8,
-    october: 9,
-    november: 10,
-    december: 11,
-  }
-
-  const month = monthMap[match[1].toLowerCase()]
-  const day = Number(match[2])
-  const year = Number(match[3])
-  const minute = Number(match[5])
-  let hour = Number(match[4])
-  const ampm = match[6].toUpperCase()
-
-  if (ampm === 'PM' && hour !== 12) hour += 12
-  if (ampm === 'AM' && hour === 12) hour = 0
-
-  return new Date(year, month, day, hour, minute, 0, 0)
 }
 
 function parseMonthDayYearDate(input: string): Date | undefined {
@@ -147,24 +161,11 @@ function parseRegistrationTimeContext(text: string): RegistrationTimeContext | u
 
 function parseOpeningWindows(text: string): OpeningWindow[] {
   const windows: OpeningWindow[] = []
-  const oldPattern =
-    /Q([1-4])\s*\(([^)]+)\)\s+opens on\s+([A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s+[ap]\.m\.)/gi
   const registrationTime = parseRegistrationTimeContext(text)
   const newPattern =
     /Q([1-4])\s*\(([^)]+)\)\s*:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})(?:\s*\([^)]+\))?/gi
 
   let match: RegExpExecArray | null
-  while ((match = oldPattern.exec(text)) !== null) {
-    const opensText = match[3].trim()
-    const opensAt = parseHumanDate(opensText)
-
-    windows.push({
-      label: `Q${match[1]} (${match[2].trim()})`,
-      opensText,
-      opensAt,
-    })
-  }
-
   while ((match = newPattern.exec(text)) !== null) {
     const label = `Q${match[1]} (${match[2].trim()})`
     const dateText = normalizeHumanDate(match[3])
@@ -204,81 +205,117 @@ function getNextWindow(windows: OpeningWindow[], now: Date): OpeningWindow | und
     })[0]
 }
 
-function extractRegistrationsSection(text: string): string {
-  const lower = text.toLowerCase()
-  const marker = 'registrations'
-  const start = lower.lastIndexOf(marker)
-  if (start === -1) return ''
+function getUpcomingWindowLabels(windows: OpeningWindow[], now: Date): string[] | undefined {
+  const upcoming = windows
+    .filter((window) => !window.opensAt || window.opensAt.getTime() >= now.getTime())
+    .map((window) => window.opensText)
 
-  const rest = text.slice(start + marker.length)
-  const endMatch = rest.match(/([\s\S]*?)(?:Examination information|Exam information|Location|$)/i)
-  return endMatch?.[1]?.trim() ?? rest.trim()
+  return upcoming.length > 0 ? upcoming : undefined
 }
 
-function extractOpenSessions(sectionText: string): string[] {
-  const sessions: string[] = []
+function normalizeStatusDescription(value?: string | null): string {
+  return (value ?? '').trim().toLowerCase()
+}
 
-  const datePattern =
-    /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?(?:,\s*)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4}(?:\s*[-,]?\s*\d{1,2}:\d{2}\s*(?:AM|PM|a\.m\.|p\.m\.))?/gi
+function isFullStatus(value?: string | null): boolean {
+  return normalizeStatusDescription(value) === 'full'
+}
 
-  let match: RegExpExecArray | null
-  while ((match = datePattern.exec(sectionText)) !== null) {
-    sessions.push(match[0].replace(/\s+/g, ' ').trim())
-  }
+function buildSessionSummary(sub: ActiveSubActivity): string {
+  const parts = [
+    sub.name?.trim(),
+    sub.number?.trim(),
+    sub.date_range?.trim(),
+    sub.location?.label?.trim(),
+    sub.fee?.label?.trim(),
+    sub.urgent_message?.status_description?.trim(),
+  ].filter(Boolean)
 
-  if (sessions.length > 0) return [...new Set(sessions)]
+  return parts.join(' | ')
+}
 
-  if (
-    !/no sessions currently available/i.test(sectionText) &&
-    /activecommunities|book your test|register now|choose a date/i.test(sectionText)
-  ) {
-    return ['Registrations section contains a registration signal']
-  }
+function summarizeParentActivity(item: ActiveActivityItem): string {
+  const subCount = item.num_of_sub_activities ?? 0
+  const urgent = item.urgent_message?.status_description?.trim()
+  const parts = [item.name?.trim(), subCount > 0 ? `View sub-courses (${subCount})` : 'No sub-activities']
+  if (urgent) parts.push(urgent)
+  return parts.filter(Boolean).join(' | ')
+}
 
-  return []
+function buildHashPayload(items: ActiveActivityItem[], subMap: Map<number, ActiveSubActivity[]>): string {
+  return JSON.stringify(
+    items.map((item) => ({
+      id: item.id,
+      name: item.name ?? '',
+      num_of_sub_activities: item.num_of_sub_activities ?? 0,
+      urgent_status: item.urgent_message?.status_description ?? '',
+      action_link: item.action_link?.href ?? '',
+      enroll_now: item.enroll_now?.href ?? '',
+      subs: (subMap.get(item.id) ?? []).map((sub) => ({
+        id: sub.id,
+        status: sub.urgent_message?.status_description ?? '',
+        enroll_now: sub.enroll_now?.href ?? '',
+        date_range: sub.date_range ?? '',
+        fee: sub.fee?.label ?? '',
+        location: sub.location?.label ?? '',
+        number: sub.number ?? '',
+      })),
+    })),
+  )
 }
 
 export function parseAllianceFrancaiseTorontoHtml(params: {
   tcfPageHtml: string
-  faqPageHtml?: string
+  activityItems: ActiveActivityItem[]
+  subActivitiesByParentId: Map<number, ActiveSubActivity[]>
   now?: Date
 }): ParsedObservation {
-  const { tcfPageHtml, faqPageHtml = '', now = new Date() } = params
+  const { tcfPageHtml, activityItems, subActivitiesByParentId, now = new Date() } = params
 
   const pageText = stripTags(tcfPageHtml)
-  const faqText = faqPageHtml ? stripTags(faqPageHtml) : ''
   const openingWindows = parseOpeningWindows(pageText)
   const nextWindow = getNextWindow(openingWindows, now)
-  const registrationsText = extractRegistrationsSection(pageText)
-  const openSessions = extractOpenSessions(registrationsText)
-  const sourceText = registrationsText || 'registrations-missing'
+  const upcomingWindowLabels = getUpcomingWindowLabels(openingWindows, now)
 
-  if (openSessions.length > 0) {
+  const parentItemsWithSubs = activityItems.filter((item) => (item.num_of_sub_activities ?? 0) > 0)
+  const allSubActivities = parentItemsWithSubs.flatMap((item) => subActivitiesByParentId.get(item.id) ?? [])
+  const openSubActivities = allSubActivities.filter(
+    (sub) => !isFullStatus(sub.urgent_message?.status_description),
+  )
+  const fullSubActivities = allSubActivities.filter((sub) => isFullStatus(sub.urgent_message?.status_description))
+
+  const detectedText = [
+    ...parentItemsWithSubs.map(summarizeParentActivity),
+    ...allSubActivities.map(buildSessionSummary),
+  ]
+    .filter(Boolean)
+    .join(' || ')
+    .slice(0, 500)
+
+  const sourceHash = hashText(buildHashPayload(activityItems, subActivitiesByParentId))
+
+  if (openSubActivities.length > 0) {
+    const primary = openSubActivities[0]
     return {
       platformId: AF_TORONTO_ID,
       centerName: 'Alliance Francaise de Toronto',
       city: 'Toronto',
       province: 'ON',
       examType: 'TCF Canada',
-      sessionLabel: openSessions[0],
+      sessionLabel: primary.date_range?.trim() || primary.name?.trim() || 'Session available',
       availabilityStatus: 'OPEN',
-      seatsText: openSessions.join('; '),
-      sourceUrl: AF_TORONTO_TCF_PAGE_URL,
-      sourceHash: hashText(sourceText),
-      confidence: /activecommunities|book your test|register now/i.test(registrationsText) ? 0.92 : 0.82,
-      detectedText: registrationsText.slice(0, 500),
+      seatsText: openSubActivities.map(buildSessionSummary).join('; '),
+      sourceUrl: primary.enroll_now?.href || AF_TORONTO_ACTIVE_SEARCH_URL,
+      sourceHash,
+      confidence: 0.97,
+      detectedText,
       nextWindowText: nextWindow?.opensText,
-      upcomingSessionLabels: openingWindows.map((window) => window.label),
+      upcomingSessionLabels: upcomingWindowLabels,
+      soldOutSessionLabels: fullSubActivities.map((sub) => sub.date_range || sub.name || '').filter(Boolean),
     }
   }
 
-  if (registrationsText || openingWindows.length > 0) {
-    const seatsText = /no sessions currently available/i.test(registrationsText)
-      ? 'No sessions currently available'
-      : pageText.match(/If a session is not listed, it is full/i)
-      ? 'If a session is not listed, it is full'
-      : 'No current session listing detected'
-
+  if (parentItemsWithSubs.length > 0) {
     return {
       platformId: AF_TORONTO_ID,
       centerName: 'Alliance Francaise de Toronto',
@@ -287,13 +324,17 @@ export function parseAllianceFrancaiseTorontoHtml(params: {
       examType: 'TCF Canada',
       sessionLabel: 'Not currently open',
       availabilityStatus: 'NOT_OPEN',
-      seatsText,
-      sourceUrl: AF_TORONTO_TCF_PAGE_URL,
-      sourceHash: hashText(sourceText),
-      confidence: faqText ? 0.83 : 0.8,
-      detectedText: registrationsText.slice(0, 500) || pageText.slice(0, 500),
+      seatsText:
+        fullSubActivities.length > 0
+          ? fullSubActivities.map(buildSessionSummary).join('; ')
+          : parentItemsWithSubs.map(summarizeParentActivity).join('; '),
+      sourceUrl: AF_TORONTO_ACTIVE_SEARCH_URL,
+      sourceHash,
+      confidence: 0.94,
+      detectedText,
       nextWindowText: nextWindow?.opensText,
-      upcomingSessionLabels: openingWindows.map((window) => window.label),
+      upcomingSessionLabels: upcomingWindowLabels,
+      soldOutSessionLabels: fullSubActivities.map((sub) => sub.date_range || sub.name || '').filter(Boolean),
     }
   }
 
@@ -303,18 +344,46 @@ export function parseAllianceFrancaiseTorontoHtml(params: {
     city: 'Toronto',
     province: 'ON',
     examType: 'TCF Canada',
-    sessionLabel: 'Unable to determine',
-    availabilityStatus: 'MONITORING',
-    seatsText: 'Could not confidently parse Toronto TCF Canada page',
-    sourceUrl: AF_TORONTO_TCF_PAGE_URL,
-    sourceHash: hashText(pageText.slice(0, 1500) || 'af-toronto-empty'),
-    confidence: 0.25,
-    detectedText: pageText.slice(0, 500),
+    sessionLabel: 'Not currently open',
+    availabilityStatus: 'NOT_OPEN',
+    seatsText: 'No sub-activities currently available',
+    sourceUrl: AF_TORONTO_ACTIVE_SEARCH_URL,
+    sourceHash,
+    confidence: activityItems.length > 0 ? 0.88 : 0.7,
+    detectedText:
+      activityItems.length > 0
+        ? activityItems.map(summarizeParentActivity).join(' || ').slice(0, 500)
+        : pageText.slice(0, 500),
+    nextWindowText: nextWindow?.opensText,
+    upcomingSessionLabels: upcomingWindowLabels,
   }
 }
 
+async function fetchJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+      Accept: 'application/json, text/plain, */*',
+      'Accept-Language': 'en-CA,en;q=0.9',
+      'Content-Type': 'application/json',
+      Origin: 'https://anc.ca.apm.activecommunities.com',
+      Referer: AF_TORONTO_ACTIVE_SEARCH_URL,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(12_000),
+  })
+
+  if (!res.ok) {
+    throw new Error(`request failed ${res.status} for ${url}`)
+  }
+
+  return (await res.json()) as T
+}
+
 export async function parseAllianceFrancaiseToronto(): Promise<ParsedObservation> {
-  const fetchOpts: RequestInit = {
+  const pageFetchOpts: RequestInit = {
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
@@ -323,17 +392,23 @@ export async function parseAllianceFrancaiseToronto(): Promise<ParsedObservation
       'Accept-Language': 'en-CA,en;q=0.9',
       'Cache-Control': 'no-cache',
       Pragma: 'no-cache',
+      Referer: AF_TORONTO_ACTIVE_SEARCH_URL,
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
     },
     signal: AbortSignal.timeout(12_000),
   }
 
   let tcfPageHtml = ''
-  let faqPageHtml = ''
+  let activityItems: ActiveActivityItem[] = []
+  const subActivitiesByParentId = new Map<number, ActiveSubActivity[]>()
   let fetchedMain = false
-  let fetchedFaq = false
+  let fetchedActive = false
 
   try {
-    const res = await fetch(AF_TORONTO_TCF_PAGE_URL, fetchOpts)
+    const res = await fetch(AF_TORONTO_TCF_PAGE_URL, pageFetchOpts)
     if (res.ok) {
       tcfPageHtml = await res.text()
       fetchedMain = true
@@ -345,16 +420,34 @@ export async function parseAllianceFrancaiseToronto(): Promise<ParsedObservation
   }
 
   try {
-    const res = await fetch(AF_TORONTO_TCF_FAQ_URL, fetchOpts)
-    if (res.ok) {
-      faqPageHtml = await res.text()
-      fetchedFaq = true
+    const listResponse = await fetchJson<ActiveListResponse>(AF_TORONTO_ACTIVE_LIST_API_URL, {
+      activity_search_pattern: {
+        online_site_id: 0,
+        activity_select_param: 0,
+        activity_category_ids: [30],
+      },
+      activity_transfer_pattern: {},
+    })
+    activityItems = listResponse.body?.activity_items ?? []
+    fetchedActive = true
+
+    for (const item of activityItems) {
+      if ((item.num_of_sub_activities ?? 0) <= 0) continue
+      const subResponse = await fetchJson<ActiveSubsResponse>(
+        `${AF_TORONTO_ACTIVE_SUBS_API_URL}/${item.id}?locale=en-US`,
+        {
+          sub_activity_ids: '',
+          activity_transfer_pattern: {},
+          open_spots: 0,
+        },
+      )
+      subActivitiesByParentId.set(item.id, subResponse.body?.sub_activities ?? [])
     }
   } catch (err) {
-    console.warn('[af-toronto parser] faq page fetch failed:', err)
+    console.warn('[af-toronto parser] Active Communities fetch failed:', err)
   }
 
-  if (!fetchedMain && !fetchedFaq) {
+  if (!fetchedMain && !fetchedActive) {
     return {
       platformId: AF_TORONTO_ID,
       centerName: 'Alliance Francaise de Toronto',
@@ -363,15 +456,15 @@ export async function parseAllianceFrancaiseToronto(): Promise<ParsedObservation
       examType: 'TCF Canada',
       sessionLabel: 'Fetch failed',
       availabilityStatus: 'MONITORING',
-      seatsText: 'Could not reach Toronto TCF Canada pages',
-      sourceUrl: AF_TORONTO_TCF_PAGE_URL,
+      seatsText: 'Could not reach Toronto TCF Canada sources',
+      sourceUrl: AF_TORONTO_ACTIVE_SEARCH_URL,
       sourceHash: hashText('af-toronto-fetch-failed'),
       confidence: 0,
       detectedText: '',
     }
   }
 
-  if (!fetchedMain) {
+  if (!fetchedActive) {
     return {
       platformId: AF_TORONTO_ID,
       centerName: 'Alliance Francaise de Toronto',
@@ -380,24 +473,25 @@ export async function parseAllianceFrancaiseToronto(): Promise<ParsedObservation
       examType: 'TCF Canada',
       sessionLabel: 'Monitoring',
       availabilityStatus: 'MONITORING',
-      seatsText: fetchedFaq
-        ? 'Main Toronto TCF Canada page unavailable; info page fetched for reference only'
-        : 'Could not reach Toronto TCF Canada page',
-      sourceUrl: AF_TORONTO_TCF_PAGE_URL,
+      seatsText: fetchedMain
+        ? 'Active Communities search unavailable; AF Toronto page fetched for future windows only'
+        : 'Could not reach Toronto Active Communities search',
+      sourceUrl: AF_TORONTO_ACTIVE_SEARCH_URL,
       sourceHash: hashText(
-        fetchedFaq ? `af-toronto-main-unavailable|${stripTags(faqPageHtml).slice(0, 1500)}` : 'af-toronto-main-unavailable',
+        fetchedMain ? `af-toronto-active-unavailable|${stripTags(tcfPageHtml).slice(0, 1500)}` : 'af-toronto-active-unavailable',
       ),
-      confidence: fetchedFaq ? 0.18 : 0,
-      detectedText: fetchedFaq ? stripTags(faqPageHtml).slice(0, 500) : '',
+      confidence: fetchedMain ? 0.18 : 0,
+      detectedText: fetchedMain ? stripTags(tcfPageHtml).slice(0, 500) : '',
     }
   }
 
   const parsed = parseAllianceFrancaiseTorontoHtml({
     tcfPageHtml,
-    faqPageHtml,
+    activityItems,
+    subActivitiesByParentId,
   })
 
-  if (!fetchedFaq) {
+  if (!fetchedMain) {
     parsed.confidence = Math.max(0, parsed.confidence - 0.08)
   }
 

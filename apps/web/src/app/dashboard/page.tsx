@@ -19,6 +19,7 @@ import {
   DEMO_USER,
 } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
+import { fetchLatestObservationsForPlatforms } from '@/lib/latest-observations'
 import type {
   Platform,
   SeatObservation,
@@ -250,11 +251,10 @@ export default function DashboardPage() {
     setFollowedIds(followedPlatformIds)
 
     // Latest observations per platform
-    const { data: dbObs } = await supabase!
-      .from('seat_observations')
-      .select('*')
-      .order('observed_at', { ascending: false })
-      .limit(20)
+    const dbObs = await fetchLatestObservationsForPlatforms(
+      supabase!,
+      (dbPlatformRows ?? []).map((row) => row.id),
+    )
     setObservations((dbObs ?? []).map(toObservation))
 
     // Latest change events

@@ -13,6 +13,7 @@ import type { MonitoringRule, Platform, SeatObservation } from '@tcf-tracker/typ
 import { getStatusDotColor, getStatusLabel, formatTimeAgo } from '@tcf-tracker/utils'
 import { MOCK_RULES, MOCK_PLATFORMS, MOCK_OBSERVATIONS } from '@/lib/mock-data'
 import { supabase, isDemoMode } from '@/lib/supabase'
+import { fetchLatestObservationsForPlatforms } from '@/lib/latest-observations'
 import type { DbPlatform } from '@/lib/database.types'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { Button } from '@/components/ui/button'
@@ -255,11 +256,10 @@ export default function WatchlistPage() {
       )
     }
 
-    const { data: dbObs } = await supabase!
-      .from('seat_observations')
-      .select('*')
-      .order('observed_at', { ascending: false })
-      .limit(20)
+    const dbObs = await fetchLatestObservationsForPlatforms(
+      supabase!,
+      (dbSubs ?? []).map((rule) => rule.platform_id),
+    )
     if (dbObs) setObservations(dbObs.map(toObservation))
   }
 
