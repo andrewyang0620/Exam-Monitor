@@ -152,7 +152,7 @@ export function Sidebar() {
       isMounted = false
       listener.subscription.unsubscribe()
     }
-  }, [router])
+  }, [router, pathname])
 
   async function handleSignOut() {
     setIsSigningOut(true)

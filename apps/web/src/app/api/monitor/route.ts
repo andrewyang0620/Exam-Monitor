@@ -9,7 +9,7 @@
  *  2. Insert seat_observation
  *  3. Compare with last observation; if status changed, insert change_event
  *  4. Fan out notification_deliveries to all matching active rules
- *  5. Send emails for rules with 'email' channel
+ *  5. Send emails for rules with 'email' channel only
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -327,17 +327,6 @@ async function processPlatformMonitor(
         }
       }
 
-      if (channels.includes('sms')) {
-        await db.from('notification_deliveries').insert({
-          user_id: rule.user_id,
-          change_event_id: changeEvent.id,
-          rule_id: rule.id,
-          channel: 'sms',
-          status: 'failed',
-          error_message: 'SMS notifications are not implemented yet',
-          sent_at: null,
-        })
-      }
     }
 
     return {
